@@ -8,7 +8,7 @@
 #include <sys/ioctl.h>
 #include <vector>
 #include "str_lib.h"
-
+#include <pqxx/pqxx>
 
 class Part {
     public:
