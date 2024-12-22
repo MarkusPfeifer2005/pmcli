@@ -9,20 +9,16 @@
 #include <vector>
 #include "str_lib.h"
 #include <pqxx/pqxx>
+#include "db_config.h"
 
 class Part {
     public:
-    std::string number, name, location, queryName, shape;
+    std::string number, name, location;
     void print(bool highlighted=false);
-    Part(std::string number, std::string name);
+    Part(std::string number, std::string name, std::string location);
 };
 
-Part::Part(std::string number, std::string name) : number{number}, name{name} {
-    this->queryName = name;
-    this->queryName = removeNonAlphaNum(name);
-    this->queryName = removeDublicateWhitespaces(this->queryName);
-    this->shape = extractShape(name);
-}
+Part::Part(std::string number, std::string name, std::string location) : number{number}, name{name}, location{location} {}
 
 void Part::print(bool highlighted) {
     winsize terminalWidth;
@@ -43,90 +39,36 @@ void Part::print(bool highlighted) {
     std::cout << std::endl;
 }
 
-bool partComparison(const Part* a, const Part* b) {
-    return a->name < b->name;
-}
-
-void readCSV(std::vector<std::vector<std::string>>& data, const std::string path, char delimiter = ',', int numHeaderRows = 0) {
-    std::ifstream csvFile(path);
-    std::string line;
-    for (int i = 0; i < numHeaderRows; i++) {
-        std::getline(csvFile, line);
-    }
-    while (std::getline(csvFile, line)) {
-        std::vector<std::string> entries;
-        splitString(line, entries, delimiter);
-        data.push_back(entries);
-    }
-    csvFile.close();
-}
-
-void loadBricklinkData(std::vector<Part> &database, const std::string path = "Parts.txt") {
-    std::vector<std::vector<std::string>> rawData;
-    readCSV(rawData, path, '\t', 3);
-    for (auto row : rawData) {
-        if (row[1].find(", Decorated") == std::string::npos && row[3].find("Duplo") == std::string::npos) {
-            database.push_back(Part{row[2], row[3]});
-        }
-    }
-}
-
-void loadLocationData(std::vector<Part> &database, const std::string path = "part_to_location.csv") {
-    std::vector<std::vector<std::string>> rawData;
-    readCSV(rawData, path);
-    for (auto row : rawData) {
-        for (auto& part : database) {
-            if (row[0] == part.number) {
-                part.location = row[1];
-                break;
-            }
-        }
-    }
-}
-
-
-void writeLocation(std::vector<Part> parts, const char delimiter = ',', const std::string path = "part_to_location.csv") {
-    std::ofstream csvFile(path);
-    for (auto part : parts) {
-        if (part.location.length() != 0) {
-            csvFile << part.number << delimiter << part.location << std::endl;
-        }
-    }
-    csvFile.close();
-}
-
-void search(std::string query, std::vector<Part*> &results, std::vector<Part> &database) {
+void search(std::string query, std::vector<Part> &results) {
     query = removeDublicateWhitespaces(query);
-    std::string shape1 = extractShape(query);
+    std::string queryShape = getShape(query, true);
     std::vector<std::string> queryKeywords;
-    query = removeNonAlphaNum(query);
     query = removeDublicateWhitespaces(query);
     splitString(query, queryKeywords, ' ');
-    for (Part& part : database) {
-        std::string brickName = removeDublicateWhitespaces(part.queryName);
-        std::vector<std::string> brickKeywords;
-        
-        splitString(brickName, brickKeywords, ' ');
-        bool wasFound1 = true;
-        for (auto queryKeyword : queryKeywords) {
-            bool wasFound2 = false;
-            for (auto brickKeyword : brickKeywords) {
-                if (brickKeyword == queryKeyword) {
-                    wasFound2 = true;
-                    break;
-                }
-            }
-            if (!wasFound2) {
-                wasFound1 = false;
-                break;
-            }
-        }
-        bool shapesAreEqual = (shape1.length() != 0 && part.shape.length() != 0 && part.shape.length() >= shape1.length() && part.shape.substr(0, shape1.length()) == shape1) || shape1.length() == 0;
-        if ((shapesAreEqual && wasFound1) || part.number.find(query) != std::string::npos) {
-            results.push_back(&part);
+    if (queryShape.length() > 0) {
+        queryKeywords.push_back(queryShape);
+    }
+    pqxx::connection conn(CONN_STR);
+    pqxx::work work(conn);
+    std::string request = "SELECT part.number, part.name, COALESCE(owning.location, '') as location FROM part LEFT OUTER JOIN owning ON part.number = owning.number "
+                          "WHERE part.name ILIKE ALL (ARRAY[";
+    for (auto& queryKeyword : queryKeywords) {
+        request.append("'%" + work.esc(queryKeyword) + "%',");
+    }
+    if (request.back() == ',') {
+        request.pop_back();
+    }
+    request.append("]) OR part.number LIKE '%" + work.esc(query) + "%' ");
+    request.append("ORDER BY part.name asc;");
+    pqxx::result result = work.exec(request);
+    work.commit();
+    std::string nameCopy;
+    for (const auto row : result) {
+        nameCopy = row["name"].as<std::string>();
+        if (queryShape.length() == 0 || getShape(nameCopy, false) == queryShape) {
+            results.push_back(Part {row["number"].as<std::string>(), row["name"].as<std::string>(), row["location"].as<std::string>()});
         }
     }
-    std::sort(results.begin(), results.end(), partComparison);
 }
 
 int main(const int argc, const char* argv[]) {
@@ -147,14 +89,6 @@ int main(const int argc, const char* argv[]) {
     }
 
     constexpr int maxPageSize = 25;
-    std::vector<Part> database;
-
-    loadBricklinkData(database);
-    if (database.size() == 0) {
-        std::cerr << "No parts loaded!" << std::endl;
-        exit(-1);
-    }
-    loadLocationData(database);
 
     while (true) {
         std::cout << "Enter part name: ";
@@ -163,8 +97,8 @@ int main(const int argc, const char* argv[]) {
         if (query == std::string{":q"}) {
             exit(EXIT_SUCCESS);
         }
-        std::vector<Part*> searchResult;
-        search(query, searchResult, database);
+        std::vector<Part> searchResult;
+        search(query, searchResult);
 
         if (searchResult.size() == 0) {
             std::cout << "\033[1A" << "\033[K" << "No result found! ";
@@ -172,8 +106,8 @@ int main(const int argc, const char* argv[]) {
         }
         int maxPadding = 0;
         for (auto result : searchResult) {
-            if (result->queryName.length() > maxPadding)
-                maxPadding = result->queryName.length();
+            if (result.name.length() > maxPadding)
+                maxPadding = result.name.length();
         }
 
         int selection = 0,
@@ -184,7 +118,7 @@ int main(const int argc, const char* argv[]) {
         std::cout << "\033[1A" << "\033[K";
         while (selecting) {
             for (int i = maxPageSize * pageIndex; i < searchResult.size() && i < maxPageSize * (pageIndex + 1); i++) {
-                searchResult[i]->print(i == selection);
+                searchResult[i].print(i == selection);
             }
             std::cout << "Page " << pageIndex + 1 << " of " << numPages << "\tnavigate with arrow-keys, select with enter" << std::endl;
 
@@ -211,7 +145,7 @@ int main(const int argc, const char* argv[]) {
                 selecting = false; // enter-key
             else if (keePress == 32) {
                 std::string command = "firefox https://www.bricklink.com/v2/search.page?q=";
-                command += searchResult[selection]->number;
+                command += searchResult[selection].number;
                 command += "#T=P";
                 system(command.c_str());
             }
@@ -227,8 +161,8 @@ int main(const int argc, const char* argv[]) {
         if (!escaped) {
             std::string location;
             std::cout << "Selected:\n";
-            searchResult[selection]->print();
-            std::cout << "Current location: " << searchResult[selection]->location << '\n';
+            searchResult[selection].print();
+            std::cout << "Current location: " << searchResult[selection].location << '\n';
             std::cout << "Enter storage location: " << storagePrefix;
             std::cout.flush();
             std::getline(std::cin, location);
@@ -239,11 +173,23 @@ int main(const int argc, const char* argv[]) {
                 std::cout << "\033[1A" << "\033[K";
             }
             if (location != std::string{":c"}) {
-                searchResult[selection]->location = storagePrefix + location;
-                writeLocation(database);
+                pqxx::connection conn(CONN_STR);
+                pqxx::work work(conn);
+                if (location.length() != 0) {
+                    work.exec_params(
+                        "INSERT INTO owning (number, location) "
+                        "VALUES ($1, $2) "
+                        "ON CONFLICT (number) DO UPDATE "
+                        "SET location = EXCLUDED.location;",
+                        searchResult[selection].number, storagePrefix + location
+                    );
+                }
+                else {
+                    work.exec_params("DELETE FROM owning WHERE number = $1;", searchResult[selection].number);
+                }
+                work.commit();
             }
         }
     }
     return EXIT_SUCCESS;
 }
-

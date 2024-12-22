@@ -8,6 +8,6 @@ void splitString(std::string str, std::vector<std::string> &result, char delimit
 std::string removeDublicateWhitespaces(std::string str);
 std::string removeWhitespaces(std::string str);
 std::string removeNonAlphaNum(std::string str);
-std::string extractShape(std::string& name);
+std::string getShape(std::string& name, bool extract = false);
 
 #endif

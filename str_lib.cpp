@@ -48,7 +48,7 @@ std::string removeNonAlphaNum(std::string str) {
     return str;
 }
 
-std::string extractShape(std::string& name) {
+std::string getShape(std::string& name, bool extract) {
     std::string shapeChars = "0123456789x/ ";
     bool xActive, slashActive, whitespaceActive;
     for (int i = 0; i < name.length(); i++) {
@@ -87,9 +87,11 @@ std::string extractShape(std::string& name) {
         }
         std::string result = name.substr(i, j - i);
         if (result.find('x') != std::string::npos) {
-            name.erase(i, j - i);
-            if (name[name.length() - 1] == ' ') {
-                name.erase(name.length() - 1, 1);
+            if (extract) {
+                name.erase(i, j - i);
+                if (name[name.length() - 1] == ' ') {
+                    name.erase(name.length() - 1, 1);
+                }
             }
             result = removeDublicateWhitespaces(result);
             for (int i = 1; i < result.length(); i++) {
@@ -104,9 +106,14 @@ std::string extractShape(std::string& name) {
                     }
                 }
             }
+            if (result.back() == ' ') {
+                result.pop_back();
+            }
             return result;
         }
         i = j;
     }
     return std::string{""};
 }
+
+
