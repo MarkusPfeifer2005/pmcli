@@ -50,7 +50,8 @@ void search(std::string query, std::vector<Part> &results) {
     }
     pqxx::connection conn(CONN_STR);
     pqxx::work work(conn);
-    std::string request = "SELECT part.number, part.name, COALESCE(owning.location, '') as location FROM part LEFT OUTER JOIN owning ON part.number = owning.number "
+    std::string request = "SELECT DISTINCT part.number, part.name, COALESCE(owning.location, '') as location "
+                          "FROM (part LEFT OUTER JOIN owning ON part.number = owning.number) LEFT OUTER JOIN alternate_num ON part.number = alternate_num.number "
                           "WHERE part.name ILIKE ALL (ARRAY[";
     for (auto& queryKeyword : queryKeywords) {
         request.append("'%" + work.esc(queryKeyword) + "%',");
@@ -58,7 +59,7 @@ void search(std::string query, std::vector<Part> &results) {
     if (request.back() == ',') {
         request.pop_back();
     }
-    request.append("]) OR part.number LIKE '%" + work.esc(query) + "%' ");
+    request.append("]) OR part.number LIKE '%" + work.esc(query) + "%' OR alternate_num.alt_num LIKE '%" + work.esc(query) + "%' ");
     request.append("ORDER BY part.name asc;");
     pqxx::result result = work.exec(request);
     work.commit();
