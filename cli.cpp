@@ -27,11 +27,11 @@ void Part::print(bool highlighted) {
         std::cout << "\033[31m";
     }
     std::string filler;
-    if ((name.length() + number.length() + 7) > terminalWidth.ws_col) {
-        std::cout << name.substr(0, terminalWidth.ws_col - number.length() - 7) << " [...] " << number;
+    if ((name.length() + number.length() + location.length() + 7) > terminalWidth.ws_col) {
+        std::cout << name.substr(0, terminalWidth.ws_col - number.length() - location.length() - 7) << " [...] " << location << number;
     }
     else {
-        std::cout << name << std::string(terminalWidth.ws_col - name.length() - number.length(), ' ') << number;
+        std::cout << name << std::string(terminalWidth.ws_col - name.length() - number.length() - location.length(), ' ') << location << number;
     }
     if (highlighted) {
         std::cout << "\033[0m";
