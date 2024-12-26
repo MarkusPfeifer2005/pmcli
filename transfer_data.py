@@ -34,7 +34,6 @@ def remove_decorated_parts(txt_path: str = "Parts.txt"):
         reader = csv.reader(txt_file, delimiter='\t')
         header = next(reader)
         number_idx = header.index("Number")
-        alt_idx = header.index("Alternate Item Number")
         category_name_idx = header.index("Category Name")
         with conn.cursor() as curs:
             for row in reader:
@@ -57,10 +56,25 @@ def insert_legacy_data(csv_path: str = "part_to_location.csv"):
     print("Completed.")
 
 
+def insert_color_data(path: str = "colors.txt"):
+    with open(path, 'r') as file, psycopg.connect(get_db_login()) as conn:
+        reader = csv.reader(file, delimiter='\t')
+        header = next(reader)
+        id_idx = header.index("Color ID")
+        name_idx = header.index("Color Name")
+        with conn.cursor() as curs:
+            for row in reader:
+                if row == []:
+                    continue
+                curs.execute("INSERT INTO color VALUES(%s, %s);", (row[id_idx], row[name_idx]))
+                conn.commit()
+
+
 def main():
     #insert_bricklink_data()
     #insert_legacy_data()
-    remove_decorated_parts()
+    #remove_decorated_parts()
+    insert_color_data()
 
 
 if __name__ == "__main__":
