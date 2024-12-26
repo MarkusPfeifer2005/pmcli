@@ -59,7 +59,8 @@ void search(std::string query, std::vector<Part> &results) {
     if (request.back() == ',') {
         request.pop_back();
     }
-    request.append("]) OR part.number LIKE '%" + work.esc(query) + "%' OR alternate_num.alt_num LIKE '%" + work.esc(query) + "%' ");
+    request.append("]) OR part.number LIKE '%" + work.esc(query) + "%' "
+                      "OR alternate_num.alt_num LIKE '%" + work.esc(query) + "%' ");
     request.append("ORDER BY part.name asc;");
     pqxx::result result = work.exec(request);
     work.commit();
