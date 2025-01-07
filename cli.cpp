@@ -11,6 +11,11 @@
 #include <pqxx/pqxx>
 #include "db_config.h"
 
+#define ANSI_CURSOR_UP_ONE_LINE "\033[1A"
+#define ANSI_ERASE_TO_END_OF_LINE "\033[K"
+#define ANSI_START_RED "\033[31m"
+#define ANSI_STOP_RED "\033[0m"
+
 class Part {
     public:
     std::string number, name, location;
@@ -24,7 +29,7 @@ void Part::print(bool highlighted) {
     winsize terminalWidth;
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &terminalWidth);
     if (highlighted) {
-        std::cout << "\033[31m";
+        std::cout << ANSI_START_RED;
     }
     std::string filler;
     if ((name.length() + number.length() + location.length() + 7) > terminalWidth.ws_col) {
@@ -34,7 +39,7 @@ void Part::print(bool highlighted) {
         std::cout << name << std::string(terminalWidth.ws_col - name.length() - number.length() - location.length(), ' ') << location << number;
     }
     if (highlighted) {
-        std::cout << "\033[0m";
+        std::cout << ANSI_STOP_RED;
     }
     std::cout << std::endl;
 }
@@ -78,7 +83,7 @@ int selectEntry(std::vector<Part>& searchResult, int maxPageSize, bool& escaped)
         pageIndex = 0,
         numPages = searchResult.size() / maxPageSize + (searchResult.size() % maxPageSize == 0 ? 0 : 1);
     bool selecting = true;
-    std::cout << "\033[1A" << "\033[K";
+    std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
     while (selecting) {
         for (int i = maxPageSize * pageIndex; i < searchResult.size() && i < maxPageSize * (pageIndex + 1); i++) {
             searchResult[i].print(i == selection);
@@ -117,7 +122,7 @@ int selectEntry(std::vector<Part>& searchResult, int maxPageSize, bool& escaped)
             escaped = true;
         }
         for (int i = maxPageSize * pageIndex; i < searchResult.size() + 1 && i < maxPageSize * (pageIndex + 1) + 1; i++) {
-            std::cout << "\033[1A" << "\033[K";
+            std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
         }
         pageIndex += pageChange;
     }
@@ -125,6 +130,9 @@ int selectEntry(std::vector<Part>& searchResult, int maxPageSize, bool& escaped)
 }
 
 int main(const int argc, const char* argv[]) {
+    constexpr char cancel[] = ":c";
+    constexpr char quit[] = ":q";
+
     std::string storagePrefix;
     if (argc > 1) {
         for (int i = 0; i < argc; i++) {
@@ -147,14 +155,14 @@ int main(const int argc, const char* argv[]) {
         std::cout << "Enter part name: ";
         std::string query;
         std::getline(std::cin, query);
-        if (query == std::string{":q"}) {
+        if (query == quit) {
             exit(EXIT_SUCCESS);
         }
         std::vector<Part> searchResult;
         search(query, searchResult);
 
         if (searchResult.size() == 0) {
-            std::cout << "\033[1A" << "\033[K" << "No result found! ";
+            std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE << "No result found! ";
             continue;
         }
         int maxPadding = 0;
@@ -176,11 +184,11 @@ int main(const int argc, const char* argv[]) {
         std::cout << "Enter storage location: " << storagePrefix;
         std::cout.flush();
         std::getline(std::cin, location);
-        if (location == std::string{":q"}) {
+        if (location == quit) {
             exit(EXIT_SUCCESS);
         }
         for (int i = 0; i < 4; i++) {
-            std::cout << "\033[1A" << "\033[K";
+            std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
         }
         if (location != std::string{":c"}) {
             pqxx::connection conn(CONN_STR);
