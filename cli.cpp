@@ -57,14 +57,18 @@ void search(std::string query, std::vector<Part> &results) {
     pqxx::work work(conn);
     std::string request = "SELECT DISTINCT part.number, part.name, COALESCE(owning.location, '') as location "
                           "FROM (part LEFT OUTER JOIN owning ON part.number = owning.number) LEFT OUTER JOIN alternate_num ON part.number = alternate_num.number "
-                          "WHERE part.name ILIKE ALL (ARRAY[";
+                          "WHERE "
+                          "(part.name ILIKE ALL (ARRAY[";
     for (auto& queryKeyword : queryKeywords) {
         request.append("'%" + work.esc(queryKeyword) + "%',");
     }
     if (request.back() == ',') {
         request.pop_back();
     }
-    request.append("]) OR part.number LIKE '%" + work.esc(query) + "%' "
+    request.append("]) "
+                      "AND part.name NOT LIKE '%Modulex%') "
+                      "OR location LIKE '%" + work.esc(query) + "%' "
+                      "OR part.number LIKE '%" + work.esc(query) + "%' "
                       "OR alternate_num.alt_num LIKE '%" + work.esc(query) + "%' ");
     request.append("ORDER BY part.name asc;");
     pqxx::result result = work.exec(request);
