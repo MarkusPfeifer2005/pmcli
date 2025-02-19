@@ -15,6 +15,12 @@
 #define ANSI_ERASE_TO_END_OF_LINE "\033[K"
 #define ANSI_START_RED "\033[31m"
 #define ANSI_STOP_RED "\033[0m"
+#define UP_ARROW 65
+#define DOWN_ARROW 66
+#define RIGHT_ARROW 67
+#define LEFT_ARROW 68
+#define ENTER_KEY 10
+#define SPACE_BAR 32
 
 class Part {
     public:
@@ -66,10 +72,12 @@ void search(std::string query, std::vector<Part> &results) {
         request.pop_back();
     }
     request.append("]) "
-                      "AND part.name NOT LIKE '%Modulex%') "
-                      "OR location LIKE '%" + work.esc(query) + "%' "
-                      "OR part.number LIKE '%" + work.esc(query) + "%' "
-                      "OR alternate_num.alt_num LIKE '%" + work.esc(query) + "%' ");
+                   "AND part.name NOT LIKE '%Modulex%' "
+                   "AND part.name NOT LIKE '%Sticker Sheet for Set%' "
+                   "AND part.name NOT LIKE '%(Sticker)%') "
+                   "OR location LIKE '%" + work.esc(query) + "%' "
+                   "OR part.number LIKE '%" + work.esc(query) + "%' "
+                   "OR alternate_num.alt_num LIKE '%" + work.esc(query) + "%' ");
     request.append("ORDER BY part.name asc;");
     pqxx::result result = work.exec(request);
     work.commit();
@@ -98,24 +106,24 @@ int selectEntry(std::vector<Part>& searchResult, int maxPageSize, bool& escaped)
             pageChange = 0;
         if (keePress == 27 && getch() == 91) { // check escape sequence
             keePress = getch();
-            if (keePress == 65 /*up-arrow*/ && selection > maxPageSize * pageIndex)
+            if (keePress == UP_ARROW && selection > maxPageSize * pageIndex)
                 selection--;
-            else if (keePress == 66 /*down-arrow*/ && selection < searchResult.size() - 1 && selection < maxPageSize * (pageIndex + 1) - 1)
+            else if (keePress == DOWN_ARROW && selection < searchResult.size() - 1 && selection < maxPageSize * (pageIndex + 1) - 1)
                 selection++;
-            else if (keePress == 67 /*right-arrow*/ && pageIndex < numPages - 1) {
+            else if (keePress == RIGHT_ARROW && pageIndex < numPages - 1) {
                 pageChange = 1;
                 if (pageIndex == numPages - 2)
                     selection = searchResult.size() - 1;
                 else
                     selection += maxPageSize;
-            } else if (keePress == 68 /*left-arrow*/ && pageIndex > 0) {
+            } else if (keePress == LEFT_ARROW && pageIndex > 0) {
                 pageChange = -1;
                 selection -= maxPageSize;
             }
         }
-        else if (keePress == 10 /*enter-key*/)
+        else if (keePress == ENTER_KEY)
             selecting = false;
-        else if (keePress == 32 /*space-bar*/) {
+        else if (keePress == SPACE_BAR) {
             std::string command = "firefox https://www.bricklink.com/v2/search.page?q=";
             command += searchResult[selection].number;
             command += "#T=P";
@@ -139,6 +147,39 @@ int main(const int argc, const char* argv[]) {
 
     std::string storagePrefix;
     if (argc > 1) {
+        if (strcmp(argv[1], "--info") || strcmp(argv[1], "-i")) {
+            int maxMar;
+
+            pqxx::connection conn(CONN_STR);
+            pqxx::work work(conn);
+            std::string request = "SELECT location FROM owning;";
+
+            pqxx::result result = work.exec(request);
+            work.commit();
+            for (const auto row : result) {
+                std::string location = row["location"].as<std::string>();
+                std::string storageType = location.substr(0, 3);
+                if (storageType.compare("mar") == 0) {
+                    std::string details = location.substr(3);
+                    std::string number;
+                    if (details.find('c') == std::string::npos) {
+                    number = details;
+                    }
+                    else {
+                        number = details.substr(0, details.find('c'));
+                    }
+                    int num = std::stoi(number);
+                
+                    if (num > maxMar) {
+                        maxMar = num;
+                    }
+                }
+            }
+
+            std::cout << "max mar: " << maxMar << std::endl;
+            exit(0);
+        }
+
         for (int i = 0; i < argc; i++) {
             if (strcmp(argv[i], "-s") == 0) {
                 if (argc >= i + 1) {
