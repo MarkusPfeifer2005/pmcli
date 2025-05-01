@@ -148,12 +148,11 @@ int main(const int argc, const char* argv[]) {
     std::string storagePrefix;
     if (argc > 1) {
         if (strcmp(argv[1], "--info") || strcmp(argv[1], "-i")) {
-            int maxMar;
+            int maxMar = 0, maxLyt = 0;
 
             pqxx::connection conn(CONN_STR);
             pqxx::work work(conn);
             std::string request = "SELECT location FROM owning;";
-
             pqxx::result result = work.exec(request);
             work.commit();
             for (const auto row : result) {
@@ -163,7 +162,7 @@ int main(const int argc, const char* argv[]) {
                     std::string details = location.substr(3);
                     std::string number;
                     if (details.find('c') == std::string::npos) {
-                    number = details;
+                        number = details;
                     }
                     else {
                         number = details.substr(0, details.find('c'));
@@ -174,9 +173,25 @@ int main(const int argc, const char* argv[]) {
                         maxMar = num;
                     }
                 }
+                else if (storageType.compare("lyt") == 0) {
+                    std::string details = location.substr(3);
+                    std::string number;
+                    if (details.find('c') == std::string::npos) {
+                        number = details;
+                    }
+                    else {
+                        number = details.substr(0, details.find('c'));
+                    }
+                    int num = std::stoi(number);
+                
+                    if (num > maxLyt) {
+                        maxLyt = num;
+                    }
+                }
             }
 
             std::cout << "max mar: " << maxMar << std::endl;
+            std::cout << "max lyt: " << maxLyt << std::endl;
             exit(0);
         }
 
