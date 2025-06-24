@@ -1,0 +1,13 @@
+.vscode/
+.venv/
+cli
+build/
+Parts.txt
+part_to_location.csv
+doctest.h
+colors.txt
+*.xml
+__pycache__/
+*.deb
+part_management-1.0
+login.txt

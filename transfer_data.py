@@ -2,9 +2,9 @@ import psycopg
 import csv
 
 
-def get_db_login(conf_path: str = "db_config.h") -> str:
+def get_db_login(conf_path: str = "login.txt") -> str:
     with open(conf_path, 'r') as config_file:
-        conn_str = config_file.readline().split('"')[1]
+        conn_str = config_file.readline()
     return conn_str
 
 def insert_bricklink_data(txt_path: str = "Parts.txt"):

@@ -9,7 +9,7 @@
 #include <vector>
 #include "str_lib.h"
 #include <pqxx/pqxx>
-#include "db_config.h"
+#include <filesystem>
 
 #define ANSI_CURSOR_UP_ONE_LINE "\033[1A"
 #define ANSI_ERASE_TO_END_OF_LINE "\033[K"
@@ -50,7 +50,7 @@ void Part::print(bool highlighted) {
     std::cout << std::endl;
 }
 
-void search(std::string query, std::vector<Part> &results) {
+void search(std::string query, std::vector<Part> &results, std::string connStr) {
     query = removeDublicateWhitespaces(query);
     std::string queryShape = getShape(query, true);
     std::vector<std::string> queryKeywords;
@@ -59,7 +59,7 @@ void search(std::string query, std::vector<Part> &results) {
     if (queryShape.length() > 0) {
         queryKeywords.push_back(queryShape);
     }
-    pqxx::connection conn(CONN_STR);
+    pqxx::connection conn(connStr);
     pqxx::work work(conn);
     std::string request = "SELECT DISTINCT part.number, part.name, COALESCE(owning.location, '') as location "
                           "FROM (part LEFT OUTER JOIN owning ON part.number = owning.number) LEFT OUTER JOIN alternate_num ON part.number = alternate_num.number "
@@ -141,7 +141,43 @@ int selectEntry(std::vector<Part>& searchResult, int maxPageSize, bool& escaped)
     return selection;
 }
 
+std::string connect_db() {
+    std::string loginString;
+    if (std::filesystem::exists("login.txt")) {
+        std::ifstream loginFile("login.txt");
+        getline(loginFile, loginString);
+        loginFile.close();
+    }
+    else {
+        std::string databaseName, userName, password, host, port;
+        std::cout << "Database name: ";
+        std::cin >> databaseName;
+        std::cout << "Username: ";
+        std::cin >> userName;
+        std::cout << "Password: ";
+        std::cin >> password;
+        std::cout << "IP-Address: ";
+        std::cin >> host;
+        std::cout << "Port: ";
+        std::cin >> port;
+
+        for (int i = 0; i < 5; i++) {
+            std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
+        }
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
+        loginString = "dbname=" + databaseName + " user=" + userName + " password=" + password + " host=" + host + " port=" + port;
+  
+        std::ofstream loginFile("login.txt");
+        loginFile << loginString;
+        loginFile.close();
+
+    }
+    return loginString;
+}
+
 int main(const int argc, const char* argv[]) {
+    std::string connStr = connect_db();
     constexpr char cancel[] = ":c";
     constexpr char quit[] = ":q";
 
@@ -150,7 +186,7 @@ int main(const int argc, const char* argv[]) {
         if (strcmp(argv[1], "--info") || strcmp(argv[1], "-i")) {
             int maxMar = 0, maxLyt = 0;
 
-            pqxx::connection conn(CONN_STR);
+            pqxx::connection conn(connStr);
             pqxx::work work(conn);
             std::string request = "SELECT location FROM owning;";
             pqxx::result result = work.exec(request);
@@ -219,7 +255,7 @@ int main(const int argc, const char* argv[]) {
             exit(EXIT_SUCCESS);
         }
         std::vector<Part> searchResult;
-        search(query, searchResult);
+        search(query, searchResult, connStr);
 
         if (searchResult.size() == 0) {
             std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE << "No result found! ";
@@ -251,7 +287,7 @@ int main(const int argc, const char* argv[]) {
             std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
         }
         if (location != std::string{":c"}) {
-            pqxx::connection conn(CONN_STR);
+            pqxx::connection conn(connStr);
             pqxx::work work(conn);
             if (location.length() != 0) {
                 work.exec_params(
