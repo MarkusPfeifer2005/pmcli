@@ -1,3 +1,8 @@
+# libpqxx - C++ and PostgreSQL
+This program uses libpqxx version 7.10 which comes preinstalled on Debian 13.
+https://pqxx.org/libpqxx/
+https://libpqxx.readthedocs.io/stable/
+
 # Psql Docker Container
 If you plan to use a psql docker container on a synology nas running DSM 7.1
 set the following environment variables:

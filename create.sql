@@ -5,7 +5,8 @@ create table if not exists part (
 
 create table if not exists color (
     id integer primary key,
-    name varchar(100) not null
+    name varchar(100) not null,
+    rgb char(6) not null
 );
 
 create table if not exists owning (
@@ -33,3 +34,13 @@ create table if not exists alternate_num (
     alt_num char(20),
     primary key (number, alt_num)
 );
+
+create table if not exists available_colors (
+    part_number char(20) references part(number)
+        on delete cascade
+        on update cascade,
+    color_id integer references color(id)
+        on delete cascade
+        on update cascade,
+    primary key (part_number, color_id)
+)
