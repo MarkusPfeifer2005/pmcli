@@ -14,6 +14,3 @@ set the following environment variables:
 Click "Add Folder" and create/select a folder like `/docker/postgres/data`
 Mount it to `/var/lib/postgresql/data`
 
-# Connect to Database
-create a "db_config.h" file and within create a preprocessor directive like:
-`#define CONN_STR "dbname=lego user=USER password=PASSWORD host=localhost"`
