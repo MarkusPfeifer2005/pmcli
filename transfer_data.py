@@ -50,19 +50,6 @@ def remove_decorated_parts(txt_path: str = "Parts.txt"):
                 conn.commit()
 
 
-#def insert_legacy_data(csv_path: str = "part_to_location.csv"):
-#    print("Inserting legacy data...")
-#    with open(csv_path, 'r') as csv_file, psycopg.connect(get_db_login()) as conn:
-#        csv_reader = csv.reader(csv_file, delimiter=',')
-#        with conn.cursor() as curs:
-#            for row in csv_reader:
-#                if row == []:
-#                    continue
-#                curs.execute("insert into owning values(%s, %s);", row)
-#                conn.commit()
-#    print("Completed.")
-
-
 def insert_color_data(path: str = "colors.txt"):
     with open(path, 'r') as file, psycopg.connect(get_db_login()) as conn:
         reader = csv.reader(file, delimiter='\t')

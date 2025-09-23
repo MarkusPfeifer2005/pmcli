@@ -12,4 +12,5 @@ __pycache__/
 part_management-1.0
 login.txt
 test_login.txt
+*.o
 
