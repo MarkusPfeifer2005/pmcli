@@ -1,8 +1,13 @@
 import psycopg
 from xml.dom.minidom import parse, Document
 import sys
-from transfer_data import get_db_login
 from os.path import expanduser
+
+
+def get_db_login(conf_path: str = "login.txt") -> str:
+    with open(conf_path, 'r') as config_file:
+        conn_str = config_file.readline()
+    return conn_str
 
 
 class Part:

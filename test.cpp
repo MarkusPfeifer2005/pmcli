@@ -1,3 +1,4 @@
+#include <ostream>
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN  // necessary to run tests
 #include "doctest.h"  // wget https://raw.githubusercontent.com/doctest/doctest/master/doctest/doctest.h
 #include "str_lib.h"
@@ -29,3 +30,23 @@ TEST_CASE ("test shape extraction") {
     CHECK(getShape(ipt, true) == "");
     CHECK(ipt == "76766");
 }
+
+TEST_CASE("test splitString") {
+    std::string ipt = "Category ID\tCategory Name\tNumber\tName\tAlternate Item Number";
+    std::vector<std::string> opt;
+    std::vector<std::string> expectedOutput = {
+        "Category ID", "Category Name", "Number", "Name",
+        "Alternate Item Number"};
+    splitString(ipt, opt, '\t');
+    CHECK(opt == expectedOutput);
+
+    ipt = "18\tMinifigure, Utensil\t2342\tMinifigure, Utensil Control Panel\t";
+    opt.clear();
+    expectedOutput = {
+        "18", "Minifigure, Utensil", "2342",
+        "Minifigure, Utensil Control Panel", ""
+    };
+    splitString(ipt, opt, '\t');
+    CHECK(opt == expectedOutput);
+}
+

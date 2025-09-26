@@ -1,9 +1,9 @@
 .c.o:
 	g++ -c -Wall $<
 
-all : str_lib.o cli.o
+all : str_lib.o cli.o csv.o
 	mkdir -p build
-	g++ -o build/pmcli -std=c++17 cli.o str_lib.o -lpqxx -lpq
+	g++ -o build/pmcli -std=c++17 cli.o str_lib.o csv.o -lpqxx -lpq
 
 test : str_lib.o test.o
 	mkdir -p build
@@ -26,6 +26,7 @@ deb : all
 str_lib.o : str_lib.cpp
 cli.o : cli.cpp
 test.o : test.cpp
+csv.o : csv.cpp
 
 clean :
 	rm -f *.o

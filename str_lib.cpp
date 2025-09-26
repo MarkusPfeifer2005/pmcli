@@ -1,14 +1,14 @@
 #include <string>
 #include <vector>
-#include <iostream>
 
 void splitString(std::string str, std::vector<std::string> &result, char delimiter) {
+    size_t index;
     while (true) {
         if (str.find(delimiter) == std::string::npos) {
             result.push_back(str);
             break;
         }
-        size_t index = str.find(delimiter);
+        index = str.find(delimiter);
         result.push_back(str.substr(0, index));
         str = str.substr(index + 1);
     }

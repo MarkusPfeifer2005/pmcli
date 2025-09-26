@@ -5,13 +5,21 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <ostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <sys/ioctl.h>
+#include <sys/types.h>
 #include <vector>
+#include <set>
 #include "str_lib.h"
+#include "csv.h"
 #include <pqxx/pqxx>
+
+#include <termios.h>
+#include <unistd.h>
+#include <stdio.h>
 
 #define ANSI_CURSOR_UP_ONE_LINE "\033[1A"
 #define ANSI_ERASE_TO_END_OF_LINE "\033[K"
@@ -27,10 +35,6 @@
 // Keybindings
 #define QUIT ":q"
 #define CANCEL ":c"
-
-#include <termios.h>
-#include <unistd.h>
-#include <stdio.h>
 
 int getch() {
     struct termios oldt, newt;
@@ -458,13 +462,125 @@ void editColor(Part part) {
     std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
 }
 
+void updateParts(std::string path) {
+    std::string connStr = connect_db();
+    pqxx::connection conn(connStr);
+    pqxx::work work(conn); 
+
+    CSV csv(path, '\t');
+    std::vector<std::string> words, altNums;
+    size_t numberIdx = csv.getIndexOf("Number"),
+           nameIdx = csv.getIndexOf("Name"),
+           altIdx = csv.getIndexOf("Alternate Item Number"),
+           categoryNameIdx = csv.getIndexOf("Category Name");
+    std::set<std::string> altNumsSet;
+
+    while (csv.getRow(words)) {
+        if (words[categoryNameIdx].find("Decorated") != std::string::npos) {
+            continue;
+        }
+        work.exec("INSERT INTO part VALUES($1, $2) ON CONFLICT DO NOTHING;",
+                pqxx::params{words[numberIdx], words[nameIdx]});
+        if (!words[altIdx].empty()) {
+            altNums.clear();
+            altNumsSet.clear();
+            splitString(words[altIdx], altNums, ',');
+            for (std::string s : altNums) {
+                altNumsSet.insert(s);
+            }
+            for (std::string s : altNumsSet) {
+                work.exec("INSERT INTO alternate_num VALUES($1, $2) ON CONFLICT "
+                        "DO NOTHING;", pqxx::params{words[numberIdx], s});
+            }
+        }
+        work.commit();
+    }
+}
+
+void updateColors(std::string path) {
+    std::string connStr = connect_db();
+    pqxx::connection conn(connStr);
+    pqxx::work work(conn); 
+
+    CSV csv(path, '\t');
+    std::vector<std::string> words;
+    size_t idIdx = csv.getIndexOf("Color ID"),
+           nameIdx = csv.getIndexOf("Color Name"),
+           rgbIdx = csv.getIndexOf("RGB");
+
+    while (csv.getRow(words)) {
+        work.exec("INSERT INTO color VALUES($1, $2, $3) ON CONFLICT DO NOTHING;",
+                pqxx::params{words[idIdx], words[nameIdx], words[rgbIdx]});
+        work.commit();
+    }
+}
+
+void updateAvailableColors(std::string path) {
+    std::string connStr = connect_db();
+    pqxx::connection conn(connStr);
+    pqxx::work work(conn); 
+
+    CSV csv(path, '\t');
+    std::vector<std::string> words;
+    size_t partNumIdx = csv.getIndexOf("Item No"),
+           colorNameIdx = csv.getIndexOf("Color");
+
+    while (csv.getRow(words)) {
+        work.exec(
+            "INSERT INTO available_colors (part_number, color_id) "
+            "SELECT $1, color.id FROM color "
+            "WHERE color.name=$2 AND EXISTS (SELECT 1 FROM part WHERE number=$1) "
+            "ON CONFLICT DO NOTHING;",
+            pqxx::params{words[partNumIdx], words[colorNameIdx]}
+        );
+        work.commit();
+    }
+}
+
 int main(const int argc, const char* argv[]) {
     // handle command line arguments
     std::string storagePrefix;
     if (argc > 1) {
-        if (strcmp(argv[1], "--info") || strcmp(argv[1], "-i")) {
+        if ((strcmp(argv[1], "--info") == 0) || (strcmp(argv[1], "-i") == 0)) {
             getInfo();
             exit(0);
+        }
+
+        // get catalog here: https://www.bricklink.com/catalogDownload.asp
+        if ((strcmp(argv[1], "--update") == 0) || (strcmp(argv[1], "-u") == 0)) {
+            if (argc < 4) {
+                std::cerr << "Too few arguments provided!\n"
+                             "-u requires one of [parts, colors, codes] and a path!" << std::endl;
+                exit(-1);
+            }
+            else if (argc > 4) {
+                std::cerr << "Too many arguments provided!\n"
+                             "-u requires one of [parts, colors, codes] and a path!" << std::endl;
+                exit(-1);
+            }
+            if (strcmp(argv[2], "parts") == 0) {
+                std::cout << "Updating parts..." << std::endl;
+                updateParts(argv[3]);
+                std::cout << "Updated parts successfully." << std::endl;
+                exit(0);
+            }
+            else if (strcmp(argv[2], "colors") == 0) {
+                std::cout << "Updating colors..." << std::endl;
+                updateColors(argv[3]);
+                std::cout << "Updated colors successfully." << std::endl;
+                exit(0);
+            }
+            else if (strcmp(argv[2], "codes") == 0) {
+                std::cout << "Updating codes..." << std::endl;
+                updateAvailableColors(argv[3]);
+                std::cout << "Updated codes successfully." << std::endl;
+                exit(0);
+            }
+            else {
+                std::cerr << "Wrong argument supplied!\n"
+                             "It has to be one of [parts, colors, codes].";
+                exit(-1);
+            }
         }
 
         for (int i = 0; i < argc; i++) {
