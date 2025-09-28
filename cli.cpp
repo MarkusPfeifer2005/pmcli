@@ -1,12 +1,12 @@
+#include <execution>
 #include <filesystem>
-#include <algorithm>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <ios>
 #include <iostream>
 #include <ostream>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <sys/ioctl.h>
@@ -16,7 +16,7 @@
 #include "str_lib.h"
 #include "csv.h"
 #include <pqxx/pqxx>
-
+#include "libs/pugixml-1.15/src/pugixml.hpp"
 #include <termios.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -537,6 +537,28 @@ void updateAvailableColors(std::string path) {
     }
 }
 
+void annotateXML(std::string path) {
+    pugi::xml_document partList;
+    pugi::xml_parse_result result = partList.load_file(path.c_str());
+    if (!result) {
+        throw std::ios_base::failure("Failed to load " + path);
+    }
+    std::string connStr = connect_db();
+    pqxx::connection conn(connStr);
+    pqxx::work work(conn); 
+    std::vector<Part> parts;
+    for (pugi::xml_node &item : partList.child("INVENTORY").children()) {
+        pqxx::result res = work.exec("SELECT number, location FROM owning WHERE number=$1;",
+                pqxx::params{item.child("ITEMID").text().as_string()});
+        work.commit();
+        if (!res.empty()) {
+            pugi::xml_node remarks = item.append_child("REMARKS");
+            remarks.text() = res[0]["location"].as<std::string>();
+        }
+    }
+    partList.save_file(path.insert(path.find_last_of("."), "_annotated").c_str());
+}
+
 int main(const int argc, const char* argv[]) {
     // handle command line arguments
     std::string storagePrefix;
@@ -581,6 +603,23 @@ int main(const int argc, const char* argv[]) {
                              "It has to be one of [parts, colors, codes].";
                 exit(-1);
             }
+        }
+
+        if ((strcmp(argv[1], "--annotate") == 0) || (strcmp(argv[1], "-a") == 0)) {
+            if (argc > 3) {
+                std::cerr << "Too many arguments supplied!\n"
+                             "'annotate' requires only a path to an XML-file." << std::endl;
+                exit(-1);
+            }
+            else if (argc < 3) {
+                std::cerr << "Too few arguments supplied!\n"
+                    "'annotate' requires a path to an XML-file." << std::endl;
+                exit(-1);
+            }
+            std::cout << "Annotating partlist..." << std::endl;
+            annotateXML(argv[2]);
+            std::cout << "Annotated partlist." << std::endl;
+            exit(0);
         }
 
         for (int i = 0; i < argc; i++) {
