@@ -676,9 +676,15 @@ void getMissing(std::string path, pqxx::connection& conn) {
     pugi::xml_document missingList;
     pugi::xml_node inventory = missingList.append_child("INVENTORY");
     for (auto lp = listParts.begin(), dp = dbParts.begin(); lp != listParts.end(); lp++, dp++) {
+        if (lp->getQuantity() <= dp->getQuantity()) {
+            continue;
+        }
         pugi::xml_node item = inventory.append_child("ITEM");
         item.append_child("ITEMTYPE").text() = "P";
-        item.append_child("ITEMID").text() = lp->partID;
+        std::string pID = lp->partID;
+        size_t endpos = pID.find_first_of(' ');
+        pID = pID.erase(endpos);
+        item.append_child("ITEMID").text() = pID;
         item.append_child("COLOR").text() = lp->colorID;
         item.append_child("MINQTY").text() = lp->getQuantity() - dp->getQuantity();
     }
