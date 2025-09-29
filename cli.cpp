@@ -6,6 +6,7 @@
 #include <fstream>
 #include <ios>
 #include <iostream>
+#include <list>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -31,6 +32,7 @@
 #define LEFT_ARROW 68
 #define ENTER_KEY 10
 #define SPACE_BAR 32
+#define PART_NUM_LENGTH 20
 
 // Keybindings
 #define QUIT ":q"
@@ -83,7 +85,6 @@ std::string connect_db() {
     return loginString;
 }
 
-
 std::string hexToStr(const std::string& hex) {
     // expect "RRGGBB" (6 chars, no '#')
     int r = std::stoi(hex.substr(0, 2), nullptr, 16);
@@ -95,43 +96,56 @@ std::string hexToStr(const std::string& hex) {
            std::to_string(b) + "m  \033[0m";
 }
 
-class Color {
+class Item {
     public:
-        std::string name,
-                    rgb;
-        int id;
-        Color(int id, std::string name, std::string rgb, int quantity, std::string partID);
-        int getQuantity() const;
-        void setQuantity(int quantity);
-        void print(bool highlighted=false);
-        void openBricklink();
+        Item(std::string pID, unsigned int cID, unsigned int quantity, pqxx::connection& conn);
+        unsigned int getQuantity() const;
+        void setQuantity(unsigned int quantity);
+        void operator+(const Item& other);  // void is unconventional but allowed
+        void operator-(const Item& other);
+        bool operator!=(const Item& other);
+        const std::string partID;
+        const unsigned int colorID;
+    protected:
+        pqxx::connection& conn;
     private:
-        int quantity;
-        std::string partID;
-        static unsigned int maxNameLength,
-                            maxQtyLength;
+        unsigned int quantity;
 };
 
-unsigned int Color::maxNameLength = 0;
-unsigned int Color::maxQtyLength = 0;
+Item::Item(std::string pID, unsigned int cID, unsigned int quantity, pqxx::connection& conn):
+    partID{pID}, colorID{cID}, quantity(quantity), conn(conn) {}
 
-Color::Color(int id, std::string name, std::string rgb, int quantity, std::string partID) : id(id), name(name), rgb(rgb), quantity(quantity), partID(partID) {
-    if (this->name.length() > Color::maxNameLength) {
-        Color::maxNameLength = this->name.length();
+bool Item::operator!=(const Item& other) {
+    if (this->colorID != other.colorID) {
+        return true;
     }
-    if (std::to_string(this->quantity).length() > Color::maxQtyLength) {
-        Color::maxQtyLength = std::to_string(this->quantity).length();
+    if (this->partID != other.partID) {
+        return true;
     }
-};
+    return false;
+}
 
-int Color::getQuantity() const {return this->quantity;}
+void Item::operator+(const Item& other) {
+    if ((*this) != other) {
+        throw std::invalid_argument("Cannot add items with different color or part ID!");
+    }
+    this->setQuantity(this->getQuantity() + other.getQuantity());
+}
 
-void Color::setQuantity(int quantity) {
-    std::string connStr = connect_db();
-    pqxx::connection conn(connStr);
-    pqxx::work work(conn);
-    if (quantity == 0) {
-        work.exec("DELETE FROM stock WHERE number=$1 AND color=$2;", pqxx::params{this->partID, this->id});
+void Item::operator-(const Item& other) {
+    if ((*this) != other) {
+        throw std::invalid_argument("Cannot subtract items with different color or part ID!");
+    }
+    this->setQuantity(this->getQuantity() - other.getQuantity());
+}
+
+unsigned int Item::getQuantity() const {return this->quantity;}
+
+void Item::setQuantity(unsigned int qty) {
+    pqxx::work work(this->conn);
+    if (qty == 0) {
+
+        work.exec("DELETE FROM stock WHERE number=$1 AND color=$2;", pqxx::params{this->partID, this->colorID});
     }
     else {
         work.exec(
@@ -139,14 +153,44 @@ void Color::setQuantity(int quantity) {
                 "VALUES($1, $2, $3) "
                 "ON CONFLICT (number, color) DO UPDATE "
                 "SET quantity = EXCLUDED.quantity;",
-                pqxx::params{this->partID, this->id, quantity}
+                pqxx::params{this->partID, this->colorID, qty}
         );
     }
-    this->quantity = quantity;
-    if (std::to_string(this->quantity).length() > Color::maxQtyLength) {
-        Color::maxQtyLength = std::to_string(this->quantity).length();
-    }
+    this->quantity = qty;
     work.commit();
+}
+
+class Color : public Item {
+    public:
+        std::string name,
+                    rgb;
+        Color(int id, std::string name, std::string rgb, int quantity, std::string partID, pqxx::connection& conn);
+        void setQuantity(unsigned int qty);
+        void print(bool highlighted=false);
+        void openBricklink();
+    private:
+        static unsigned int maxNameLength,
+                            maxQtyLength;
+};
+
+unsigned int Color::maxNameLength = 0;
+unsigned int Color::maxQtyLength = 0;
+
+Color::Color(int cID, std::string name, std::string rgb, int quantity, std::string partID, pqxx::connection& conn):
+    Item(partID, cID, quantity, conn), name(name), rgb(rgb) {
+    if (this->name.length() > Color::maxNameLength) {
+        Color::maxNameLength = this->name.length();
+    }
+    if (std::to_string(quantity).length() > Color::maxQtyLength) {
+        Color::maxQtyLength = std::to_string(quantity).length();
+    }
+};
+
+void Color::setQuantity(unsigned int qty) {
+    Item::setQuantity(qty);
+    if (std::to_string(this->getQuantity()).length() > Color::maxQtyLength) {
+        Color::maxQtyLength = std::to_string(this->getQuantity()).length();
+    }
 }
 
 void Color::print(bool highlighted) {
@@ -156,13 +200,13 @@ void Color::print(bool highlighted) {
     if (highlighted) {std::cout << ANSI_STOP_RED;}
     for (int i = 0; i < Color::maxNameLength - this->name.length(); i++) {std::cout << ' ';}
     std::cout << " | ";
-    for (int i = 0; i < maxQtyLength - std::to_string(this->quantity).length(); i++) {std::cout << ' ';}
-    std::cout << this->quantity << std::endl;
+    for (int i = 0; i < maxQtyLength - std::to_string(this->getQuantity()).length(); i++) {std::cout << ' ';}
+    std::cout << this->getQuantity() << std::endl;
 }
 
 void Color::openBricklink() {
     std::string command = "firefox 'https://www.bricklink.com/catalogList.asp?v=2&colorID='";
-    command += std::to_string(this->id);
+    command += std::to_string(this->colorID);
     system(command.c_str());
 }
 
@@ -173,9 +217,9 @@ class Part {
         void print(bool highlighted=false);
         Part(std::string number, std::string name, std::string location);
         std::string getLocation();
-        void setLocation(std::string location, std::string storagePrefix);
+        void setLocation(std::string location, std::string storagePrefix, pqxx::connection& conn);
         void openBricklink();
-        void getAvailableColors(std::vector<Color>& colors);
+        void getAvailableColors(std::vector<Color>& colors, pqxx::connection& conn);
     private:
         std::string location;
 };
@@ -190,11 +234,12 @@ void Part::print(bool highlighted) {
     }
     std::string filler;
     if ((name.length() + number.length() + location.length() + 7) > terminalWidth.ws_col) {
-        std::cout << name.substr(0, terminalWidth.ws_col - number.length() - location.length() - 7) << " [...] " << location << number;
+        std::cout << name.substr(0, terminalWidth.ws_col - number.length() - location.length() - 7) <<
+            " [...] " << location << number;
     }
     else {
-        std::cout << name << std::string(terminalWidth.ws_col - name.length() - number.length() - location.length(), ' ') << location 
-            << number;
+        std::cout << name << std::string(terminalWidth.ws_col - name.length() - number.length() - location.length(), ' ') <<
+            location << number;
     }
     if (highlighted) {
         std::cout << ANSI_STOP_RED;
@@ -211,9 +256,7 @@ void Part::openBricklink() {
 
 std::string Part::getLocation() {return this->location;}
 
-void Part::setLocation(std::string location, std::string storagePrefix) {
-    std::string connStr = connect_db();
-    pqxx::connection conn(connStr);
+void Part::setLocation(std::string location, std::string storagePrefix, pqxx::connection& conn) {
     pqxx::work work(conn);
     if (location != std::string{CANCEL}) {
         if (location.length() != 0) {
@@ -233,9 +276,7 @@ void Part::setLocation(std::string location, std::string storagePrefix) {
     }
 } 
 
-void Part::getAvailableColors(std::vector<Color>& colors) {
-    std::string connStr = connect_db();
-    pqxx::connection conn(connStr);
+void Part::getAvailableColors(std::vector<Color>& colors, pqxx::connection& conn) {
     pqxx::work work(conn);
     std::string request = 
         "SELECT id, name, rgb, COALESCE(quantity, 0) as quantity "
@@ -262,12 +303,13 @@ void Part::getAvailableColors(std::vector<Color>& colors) {
                 row["name"].as<std::string>(),
                 row["rgb"].as<std::string>(),
                 row["quantity"].as<int>(),
-                this->number
+                this->number,
+                conn
         });
     }
 }
 
-void editLocation(Part part, std::string storagePrefix) {
+void editLocation(Part part, std::string storagePrefix, pqxx::connection& conn) {
     std::cout << "Current location: " << part.getLocation() << '\n';
     std::cout << "Enter new location: ";
     std::string location;
@@ -278,13 +320,11 @@ void editLocation(Part part, std::string storagePrefix) {
     for (int i = 0; i < 2; i++) {
         std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
     }
-    part.setLocation(location, storagePrefix);
+    part.setLocation(location, storagePrefix, conn);
 }
 
-void search(std::string query, std::vector<Part> &results) {
-    std::string connStr = connect_db();
-    pqxx::connection conn(connStr);
-    pqxx::work work(conn);
+void search(std::string query, std::vector<Part> &results, pqxx::connection& conn) {
+    pqxx::work work(conn); 
     /*fill the results vector with results*/
     query = removeDublicateWhitespaces(query);
     std::string queryShape = getShape(query, true);
@@ -295,9 +335,10 @@ void search(std::string query, std::vector<Part> &results) {
         queryKeywords.push_back(queryShape);
     }
     std::string request = "SELECT DISTINCT part.number, part.name, COALESCE(owning.location, '') as location "
-    "FROM (part LEFT OUTER JOIN owning ON part.number = owning.number) LEFT OUTER JOIN alternate_num ON part.number = alternate_num.number "
-    "WHERE "
-    "(part.name ILIKE ALL (ARRAY[";
+        "FROM (part LEFT OUTER JOIN owning ON part.number = owning.number) "
+        "LEFT OUTER JOIN alternate_num ON part.number = alternate_num.number "
+        "WHERE "
+        "(part.name ILIKE ALL (ARRAY[";
     for (auto& queryKeyword : queryKeywords) {
         request.append("'%" + work.esc(queryKeyword) + "%',");
     }
@@ -370,53 +411,51 @@ int selectEntry(std::vector<Item>& searchResult, int maxPageSize, bool& escaped)
 }
 
 
-void getInfo() {
-    std::string connStr = connect_db();
-    pqxx::connection conn(connStr);
+void getInfo(pqxx::connection& conn) {
     pqxx::work work(conn);
     int maxMar = 0, maxLyt = 0;
-        std::string request = "SELECT location FROM owning;";
-        pqxx::result result = work.exec(request);
-        work.commit();
-        for (const auto row : result) {
-            std::string location = row["location"].as<std::string>();
-            std::string storageType = location.substr(0, 3);
-            if (storageType.compare("mar") == 0) {
-                std::string details = location.substr(3);
-                std::string number;
-                if (details.find('c') == std::string::npos) {
-                    number = details;
-                }
-                else {
-                    number = details.substr(0, details.find('c'));
-                }
-                int num = std::stoi(number);
-
-                if (num > maxMar) {
-                    maxMar = num;
-                }
+    std::string request = "SELECT location FROM owning;";
+    pqxx::result result = work.exec(request);
+    work.commit();
+    for (const auto row : result) {
+        std::string location = row["location"].as<std::string>();
+        std::string storageType = location.substr(0, 3);
+        if (storageType.compare("mar") == 0) {
+            std::string details = location.substr(3);
+            std::string number;
+            if (details.find('c') == std::string::npos) {
+                number = details;
             }
-            else if (storageType.compare("lyt") == 0) {
-                std::string details = location.substr(3);
-                std::string number;
-                if (details.find('c') == std::string::npos) {
-                    number = details;
-                }
-                else {
-                    number = details.substr(0, details.find('c'));
-                }
-                int num = std::stoi(number);
+            else {
+                number = details.substr(0, details.find('c'));
+            }
+            int num = std::stoi(number);
 
-                if (num > maxLyt) {
-                    maxLyt = num;
-                }
+            if (num > maxMar) {
+                maxMar = num;
             }
         }
-        std::cout << "max mar: " << maxMar << std::endl;
-        std::cout << "max lyt: " << maxLyt << std::endl;
-    }
+        else if (storageType.compare("lyt") == 0) {
+            std::string details = location.substr(3);
+            std::string number;
+            if (details.find('c') == std::string::npos) {
+                number = details;
+            }
+            else {
+                number = details.substr(0, details.find('c'));
+            }
+            int num = std::stoi(number);
 
-    std::string getPartName() {
+            if (num > maxLyt) {
+                maxLyt = num;
+            }
+        }
+    }
+    std::cout << "max mar: " << maxMar << std::endl;
+    std::cout << "max lyt: " << maxLyt << std::endl;
+}
+
+std::string getPartName() {
     std::cout << "Enter part name: ";
     std::string query;
     std::getline(std::cin, query);
@@ -426,9 +465,9 @@ void getInfo() {
     return query;
 }
 
-void editColor(Part part) {
+void editColor(Part part, pqxx::connection& conn) {
     std::vector<Color> colors;
-    part.getAvailableColors(colors);
+    part.getAvailableColors(colors, conn);
     std::cout << "Part " << part.name << std::endl;
     bool escaped = false;
     while (true) {
@@ -462,11 +501,8 @@ void editColor(Part part) {
     std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
 }
 
-void updateParts(std::string path) {
-    std::string connStr = connect_db();
-    pqxx::connection conn(connStr);
-    pqxx::work work(conn); 
-
+void updateParts(std::string path, pqxx::connection& conn) {
+    pqxx::work work(conn);
     CSV csv(path, '\t');
     std::vector<std::string> words, altNums;
     size_t numberIdx = csv.getIndexOf("Number"),
@@ -497,11 +533,8 @@ void updateParts(std::string path) {
     }
 }
 
-void updateColors(std::string path) {
-    std::string connStr = connect_db();
-    pqxx::connection conn(connStr);
-    pqxx::work work(conn); 
-
+void updateColors(std::string path, pqxx::connection& conn) {
+    pqxx::work work(conn);
     CSV csv(path, '\t');
     std::vector<std::string> words;
     size_t idIdx = csv.getIndexOf("Color ID"),
@@ -515,11 +548,8 @@ void updateColors(std::string path) {
     }
 }
 
-void updateAvailableColors(std::string path) {
-    std::string connStr = connect_db();
-    pqxx::connection conn(connStr);
-    pqxx::work work(conn); 
-
+void updateAvailableColors(std::string path, pqxx::connection& conn) {
+    pqxx::work work(conn);
     CSV csv(path, '\t');
     std::vector<std::string> words;
     size_t partNumIdx = csv.getIndexOf("Item No"),
@@ -537,16 +567,13 @@ void updateAvailableColors(std::string path) {
     }
 }
 
-void annotateXML(std::string path) {
+void annotateXML(std::string path, pqxx::connection& conn) {
+    pqxx::work work(conn);
     pugi::xml_document partList;
     pugi::xml_parse_result result = partList.load_file(path.c_str());
     if (!result) {
         throw std::ios_base::failure("Failed to load " + path);
     }
-    std::string connStr = connect_db();
-    pqxx::connection conn(connStr);
-    pqxx::work work(conn); 
-    std::vector<Part> parts;
     for (pugi::xml_node &item : partList.child("INVENTORY").children()) {
         pqxx::result res = work.exec("SELECT number, location FROM owning WHERE number=$1;",
                 pqxx::params{item.child("ITEMID").text().as_string()});
@@ -559,12 +586,114 @@ void annotateXML(std::string path) {
     partList.save_file(path.insert(path.find_last_of("."), "_annotated").c_str());
 }
 
+void validateXml(std::string path, std::vector<Item>& extParts, std::vector<Item>& intParts, pqxx::connection& conn) {
+    pqxx::work work(conn);
+    pugi::xml_document partList;
+    pugi::xml_parse_result result = partList.load_file(path.c_str());
+    if (!result) {
+        throw std::ios_base::failure("Failed to load " + path);
+    }
+    for (pugi::xml_node item : partList.child("INVENTORY").children()) {
+        std::string pID = item.child("ITEMID").text().as_string();
+        if (pID.length() < PART_NUM_LENGTH) {
+            pID.append(PART_NUM_LENGTH - pID.length(), ' ');
+        }
+        Item listPart(
+                pID,
+                item.child("COLOR").text().as_uint(),
+                item.child("MINQTY").text().as_uint(),
+                conn
+                );
+        pqxx::result result = work.exec(
+                "SELECT * FROM stock "
+                "WHERE number=$1 AND color=$2",
+                pqxx::params{listPart.partID, listPart.colorID}
+                );
+        work.commit();
+        unsigned int cID,
+                     quantity;
+        if (result.empty()) {
+            pqxx::result result2 = work.exec(
+                    "SELECT * FROM available_colors WHERE "
+                    "part_number=$1 AND color_id=$2;",
+                    pqxx::params{listPart.partID, listPart.colorID}
+                    );
+            work.commit();
+            if (result2.empty()) {
+                std::string message = "That part - color combination does not exist!\n"
+                                      "part ID:  " + pID + "\n"
+                                      "color ID: " + std::to_string(listPart.colorID) + "\n";
+                throw std::out_of_range(message);
+            }
+            cID = item.child("COLOR").text().as_uint();
+            quantity = 0;
+        }
+        else {
+            cID = result[0]["color"].as<unsigned int>();
+            quantity = result[0]["quantity"].as<unsigned int>();
+        }
+        Item dbPart(pID, cID, quantity, conn);
+        extParts.push_back(listPart);
+        intParts.push_back(dbPart);
+    }
+}
+
+void extractParts(std::string path, pqxx::connection& conn) {
+    std::vector<Item>listParts, dbParts;
+    validateXml(path, listParts, dbParts, conn);
+    for (auto lp = listParts.begin(), dp = dbParts.begin(); lp != listParts.end(); lp++, dp++) {
+        if (dp->getQuantity() < lp->getQuantity()) {
+            throw std::domain_error("There have to be more parts in stock than can be extracted!");
+        }
+    }
+    for (auto lp = listParts.begin(), dp = dbParts.begin(); lp != listParts.end(); lp++, dp++) {
+        *dp - *lp;
+    }
+}
+
+void returnParts(std::string path, pqxx::connection& conn) {
+    std::vector<Item>listParts, dbParts;
+    validateXml(path, listParts, dbParts, conn);
+    pqxx::work work(conn);
+    for (auto lp = listParts.begin(), dp = dbParts.begin(); lp != listParts.end(); lp++, dp++) {
+        pqxx::result result = work.exec("SELECT * from owning WHERE number=$1;",
+                                        pqxx::params{lp->partID});
+        work.commit();
+        if (result.empty()) {
+            std::string message = "There have to be parts with location in the inventory!\n"
+                                  "part ID: '" + lp->partID + "'\n"; 
+            throw std::domain_error(message);
+        }
+    }
+    for (auto lp = listParts.begin(), dp = dbParts.begin(); lp != listParts.end(); lp++, dp++) {
+        *dp + *lp;
+    }
+}
+
+void getMissing(std::string path, pqxx::connection& conn) {
+    std::vector<Item>listParts, dbParts;
+    validateXml(path, listParts, dbParts, conn);
+    pugi::xml_document missingList;
+    pugi::xml_node inventory = missingList.append_child("INVENTORY");
+    for (auto lp = listParts.begin(), dp = dbParts.begin(); lp != listParts.end(); lp++, dp++) {
+        pugi::xml_node item = inventory.append_child("ITEM");
+        item.append_child("ITEMTYPE").text() = "P";
+        item.append_child("ITEMID").text() = lp->partID;
+        item.append_child("COLOR").text() = lp->colorID;
+        item.append_child("MINQTY").text() = lp->getQuantity() - dp->getQuantity();
+    }
+    missingList.save_file(path.insert(path.find_last_of("."), "_missing").c_str());
+}
+
 int main(const int argc, const char* argv[]) {
+    std::string connStr = connect_db();
+    pqxx::connection conn(connStr);
+
     // handle command line arguments
     std::string storagePrefix;
     if (argc > 1) {
         if ((strcmp(argv[1], "--info") == 0) || (strcmp(argv[1], "-i") == 0)) {
-            getInfo();
+            getInfo(conn);
             exit(0);
         }
 
@@ -582,19 +711,19 @@ int main(const int argc, const char* argv[]) {
             }
             if (strcmp(argv[2], "parts") == 0) {
                 std::cout << "Updating parts..." << std::endl;
-                updateParts(argv[3]);
+                updateParts(argv[3], conn);
                 std::cout << "Updated parts successfully." << std::endl;
                 exit(0);
             }
             else if (strcmp(argv[2], "colors") == 0) {
                 std::cout << "Updating colors..." << std::endl;
-                updateColors(argv[3]);
+                updateColors(argv[3], conn);
                 std::cout << "Updated colors successfully." << std::endl;
                 exit(0);
             }
             else if (strcmp(argv[2], "codes") == 0) {
                 std::cout << "Updating codes..." << std::endl;
-                updateAvailableColors(argv[3]);
+                updateAvailableColors(argv[3], conn);
                 std::cout << "Updated codes successfully." << std::endl;
                 exit(0);
             }
@@ -617,8 +746,59 @@ int main(const int argc, const char* argv[]) {
                 exit(-1);
             }
             std::cout << "Annotating partlist..." << std::endl;
-            annotateXML(argv[2]);
+            annotateXML(argv[2], conn);
             std::cout << "Annotated partlist." << std::endl;
+            exit(0);
+        }
+
+        if ((strcmp(argv[1], "--extract") == 0) || (strcmp(argv[1], "-e") == 0)) {
+            if (argc > 3) {
+                std::cerr << "Too many arguments supplied!\n"
+                             "'extract' requires only a path to an XML-file." << std::endl;
+                exit(-1);
+            }
+            else if (argc < 3) {
+                std::cerr << "Too few arguments supplied!\n"
+                    "'extract' requires a path to an XML-file." << std::endl;
+                exit(-1);
+            }
+            std::cout << "Extracting parts..." << std::endl;
+            extractParts(argv[2], conn);
+            std::cout << "Extracted parts." << std::endl;
+            exit(0);
+        }
+
+        if ((strcmp(argv[1], "--return") == 0) || (strcmp(argv[1], "-r") == 0)) {
+            if (argc > 3) {
+                std::cerr << "Too many arguments supplied!\n"
+                             "'return' requires only a path to an XML-file." << std::endl;
+                exit(-1);
+            }
+            else if (argc < 3) {
+                std::cerr << "Too few arguments supplied!\n"
+                    "'return' requires a path to an XML-file." << std::endl;
+                exit(-1);
+            }
+            std::cout << "Returning parts..." << std::endl;
+            returnParts(argv[2], conn);
+            std::cout << "Returned parts." << std::endl;
+            exit(0);
+        }
+
+        if ((strcmp(argv[1], "--missing") == 0) || (strcmp(argv[1], "-m") == 0)) {
+            if (argc > 3) {
+                std::cerr << "Too many arguments supplied!\n"
+                             "'missing' requires only a path to an XML-file." << std::endl;
+                exit(-1);
+            }
+            else if (argc < 3) {
+                std::cerr << "Too few arguments supplied!\n"
+                    "'missing' requires a path to an XML-file." << std::endl;
+                exit(-1);
+            }
+            std::cout << "Calculating missing parts..." << std::endl;
+            getMissing(argv[2], conn);
+            std::cout << "Calculated missing parts." << std::endl;
             exit(0);
         }
 
@@ -640,7 +820,7 @@ int main(const int argc, const char* argv[]) {
     while (true) {
         std::string query = getPartName();
         std::vector<Part> searchResult;
-        search(query, searchResult);
+        search(query, searchResult, conn);
 
         if (searchResult.size() == 0) {
             std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE << "No result found! ";
@@ -659,7 +839,7 @@ int main(const int argc, const char* argv[]) {
         std::cout << "Selected: " << searchResult[selection].name << ", " 
             << searchResult[selection].number << std::endl;
         if (searchResult[selection].getLocation().length() == 0) {
-            editLocation(searchResult[selection], storagePrefix);
+            editLocation(searchResult[selection], storagePrefix, conn);
         }
         else {
             std::cout << "Edit color or location (c/l)? ";
@@ -667,10 +847,10 @@ int main(const int argc, const char* argv[]) {
             std::getline(std::cin, answer);
             std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
             if (answer == "c") {
-                editColor(searchResult[selection]);
+                editColor(searchResult[selection], conn);
             }
             else if (answer == "l") {
-                editLocation(searchResult[selection], storagePrefix);
+                editLocation(searchResult[selection], storagePrefix, conn);
             }
         }
         std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
