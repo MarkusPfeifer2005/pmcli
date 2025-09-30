@@ -578,10 +578,21 @@ void annotateXML(std::string path, pqxx::connection& conn) {
         pqxx::result res = work.exec("SELECT number, location FROM owning WHERE number=$1;",
                 pqxx::params{item.child("ITEMID").text().as_string()});
         work.commit();
-        if (!res.empty()) {
-            pugi::xml_node remarks = item.append_child("REMARKS");
-            remarks.text() = res[0]["location"].as<std::string>();
+        if (res.empty()) {
+            continue;
         }
+        std::string info = res[0]["location"].as<std::string>();
+        res = work.exec("SELECT * from stock WHERE number=$1;",
+                pqxx::params{item.child("ITEMID").text().as_string()});
+        work.commit();
+        if (res.empty()) {
+            info.append(" empty");
+        }
+        else {
+            info.append(" filled");
+        }
+        pugi::xml_node remarks = item.append_child("REMARKS");
+        remarks.text() = info;
     }
     partList.save_file(path.insert(path.find_last_of("."), "_annotated").c_str());
 }
