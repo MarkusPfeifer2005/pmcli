@@ -1,4 +1,3 @@
-#include <execution>
 #include <filesystem>
 #include <cstddef>
 #include <cstdlib>
@@ -6,7 +5,6 @@
 #include <fstream>
 #include <ios>
 #include <iostream>
-#include <list>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -51,38 +49,57 @@ int getch() {
 }
 
 std::string connect_db() {
-    std::string loginString;
-    if (std::filesystem::exists("login.txt")) {
-        std::ifstream loginFile("login.txt");
+    const char* homeDir = std::getenv("HOME");
+    if (!homeDir) {
+        std::cerr << "HOME environment variable not set!" << std::endl;
+        exit(EXIT_FAILURE);
+    }
+    std::string dirPath = std::string(homeDir) + "/.pmcli",
+                fileName = dirPath + "/login.txt";
+    std::string loginString, password;
+    if (std::filesystem::exists(fileName)) {
+        std::ifstream loginFile(fileName);
         getline(loginFile, loginString);
         loginFile.close();
     }
     else {
-        std::string databaseName, userName, password, host, port;
+        std::string databaseName, userName, host, port;
         std::cout << "Database name: ";
         std::cin >> databaseName;
         std::cout << "Username: ";
         std::cin >> userName;
-        std::cout << "Password: ";
-        std::cin >> password;
+        password = getpass("Password: ");
+        char savePassword;
+        std::cout << "Do you want to save the password? [Y/n] ";
+        std::cin >> savePassword;
         std::cout << "IP-Address: ";
         std::cin >> host;
         std::cout << "Port: ";
         std::cin >> port;
 
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 6; i++) {
             std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
         }
         std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-
-        loginString = "dbname=" + databaseName + " user=" + userName + " password=" + password + " host=" + host + " port=" + port;
-
-        std::ofstream loginFile("login.txt");
+        loginString = "dbname=" + databaseName + " user=" + userName + " host=" + host + " port=" + port;
+        if (savePassword == 'y' || savePassword == 'Y') {
+            loginString += " password=" + password;
+        }
+        if (!std::filesystem::exists(dirPath)) {
+            std::filesystem::create_directory(dirPath);
+        }
+        std::ofstream loginFile(fileName);
         loginFile << loginString;
         loginFile.close();
-
     }
-    return loginString;
+    if (loginString.find("password") != std::string::npos) {
+        return loginString;
+    }
+    else if (password.empty()) {
+        password = getpass("Password: ");
+        std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
+    }
+    return loginString += " password=" + password;
 }
 
 std::string hexToStr(const std::string& hex) {
