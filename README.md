@@ -33,6 +33,7 @@ set the following environment variables:
 - POSTGRES_PASSWORD
 - POSTGRES_USER
 - POSTGRES_DB
+
 To keep your data in the docker container do the following:
 Click "Add Folder" and create/select a folder like `/docker/postgres/data`
 Mount it to `/var/lib/postgresql/data`
