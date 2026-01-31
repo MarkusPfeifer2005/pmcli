@@ -9,19 +9,23 @@ test : str_lib.o test.o
 	mkdir -p build
 	g++ -o build/test -std=c++17 str_lib.o test.o
 
+DEBIAN_PATH=pmcli-1.0/DEBIAN
+CONTROL_FILE=$(DEBIAN_PATH)/control
+BIN_PATH=pmcli-1.0/usr/local/bin
+
 deb : all
-	mkdir -p part_management-1.0/DEBIAN
-	mkdir -p part_management-1.0/usr/local/bin
-	cp build/pmcli part_management-1.0/usr/local/bin/
-	echo "Package: pmcli" > part_management-1.0/DEBIAN/control
-	echo "Version: 1.0" >> part_management-1.0/DEBIAN/control
-	echo "Section: base" >> part_management-1.0/DEBIAN/control
-	echo "Priority: optional" >> part_management-1.0/DEBIAN/control
-	echo "Architecture: amd64" >> part_management-1.0/DEBIAN/control
-	echo "Depends: libc6 (>= 2.3.4)" >> part_management-1.0/DEBIAN/control
-	echo "Maintainer: Markus Pfeifer <mkspfeifer@gmail.com>" >> part_management-1.0/DEBIAN/control
-	echo "Description: This program is used to organize my LEGO collection." >> part_management-1.0/DEBIAN/control
-	dpkg-deb --build part_management-1.0
+	mkdir -p $(DEBIAN_PATH)
+	mkdir -p $(BIN_PATH)
+	cp build/pmcli $(BIN_PATH)
+	echo "Package: pmcli" > $(CONTROL_FILE)
+	echo "Version: 1.0" >> $(CONTROL_FILE)
+	echo "Section: base" >> $(CONTROL_FILE)
+	echo "Priority: optional" >> $(CONTROL_FILE)
+	echo "Architecture :amd64" >> $(CONTROL_FILE)
+	echo "Depends: libc6 (>= 2.3.4)" >> $(CONTROL_FILE)
+	echo "Maintainer: Markus Pfeifer <mkspfeifer@gmail.com>" >> $(CONTROL_FILE)
+	echo "Description: This program is used to organize my LEGO collection." >> $(CONTROL_FILE)
+	dpkg-deb --build pmcli-1.0
 
 str_lib.o : str_lib.cpp
 cli.o : cli.cpp
@@ -33,6 +37,6 @@ pugixml.o : libs/pugixml-1.15/src/pugixml.cpp
 clean :
 	rm -f *.o
 	rm -fr build
-	rm -fr part_management-1.0
-	rm -f part_management-1.0.deb
+	rm -fr pmcli-1.0
+	rm -f pmcli-1.0.deb
 
