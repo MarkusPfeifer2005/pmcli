@@ -1,9 +1,9 @@
 .cpp.o:
 	g++ -c -std=c++17 $<
 
-all : str_lib.o cli.o csv.o pugixml.o
+all : str_lib.o main.o csv.o pugixml.o
 	mkdir -p build
-	g++ -o build/pmcli -std=c++17 cli.o str_lib.o csv.o pugixml.o -lpqxx -lpq
+	g++ -o build/pmcli -std=c++17 main.o str_lib.o csv.o pugixml.o -lpqxx -lpq
 
 test : str_lib.o test.o
 	mkdir -p build
@@ -28,7 +28,7 @@ deb : all
 	dpkg-deb --build pmcli-1.0
 
 str_lib.o : str_lib.cpp
-cli.o : cli.cpp
+main.o : main.cpp
 test.o : test.cpp
 csv.o : csv.cpp
 pugixml.o : libs/pugixml-1.15/src/pugixml.cpp
