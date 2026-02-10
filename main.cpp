@@ -19,6 +19,7 @@
 #include <termios.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <ncurses.h>
 
 #define ANSI_CURSOR_UP_ONE_LINE "\033[1A"
 #define ANSI_ERASE_TO_END_OF_LINE "\033[K"
@@ -35,18 +36,6 @@
 // Keybindings
 #define QUIT ":q"
 #define CANCEL ":c"
-
-int getch() {
-    struct termios oldt, newt;
-    int ch;
-    tcgetattr(STDIN_FILENO, &oldt);              // save old settings
-    newt = oldt;
-    newt.c_lflag &= ~(ICANON | ECHO);            // disable canonical mode & echo
-    tcsetattr(STDIN_FILENO, TCSANOW, &newt);     // apply new settings
-    ch = getchar();
-    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);     // restore old settings
-    return ch;
-}
 
 std::string connect_db() {
     const char* homeDir = std::getenv("HOME");
@@ -100,17 +89,6 @@ std::string connect_db() {
         std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
     }
     return loginString += " password=" + password;
-}
-
-std::string hexToStr(const std::string& hex) {
-    // expect "RRGGBB" (6 chars, no '#')
-    int r = std::stoi(hex.substr(0, 2), nullptr, 16);
-    int g = std::stoi(hex.substr(2, 2), nullptr, 16);
-    int b = std::stoi(hex.substr(4, 2), nullptr, 16);
-
-    return "\033[48;2;" + std::to_string(r) + ";" +
-           std::to_string(g) + ";" +
-           std::to_string(b) + "m  \033[0m";
 }
 
 class Item {
@@ -194,14 +172,16 @@ unsigned int Color::maxNameLength = 0;
 unsigned int Color::maxQtyLength = 0;
 
 Color::Color(int cID, std::string name, std::string rgb, int quantity, std::string partID, pqxx::connection& conn):
-    Item(partID, cID, quantity, conn), name(name), rgb(rgb) {
-    if (this->name.length() > Color::maxNameLength) {
-        Color::maxNameLength = this->name.length();
-    }
-    if (std::to_string(quantity).length() > Color::maxQtyLength) {
-        Color::maxQtyLength = std::to_string(quantity).length();
-    }
-};
+    Item(partID, cID, quantity, conn),
+    name(name),
+    rgb(rgb) {
+        if (this->name.length() > Color::maxNameLength) {
+            Color::maxNameLength = this->name.length();
+        }
+        if (std::to_string(quantity).length() > Color::maxQtyLength) {
+            Color::maxQtyLength = std::to_string(quantity).length();
+        }
+}
 
 void Color::setQuantity(unsigned int qty) {
     Item::setQuantity(qty);
@@ -211,14 +191,25 @@ void Color::setQuantity(unsigned int qty) {
 }
 
 void Color::print(bool highlighted) {
-    std::cout << hexToStr(this->rgb) << " ";
-    if (highlighted) {std::cout << ANSI_START_RED;}
-    std::cout << this->name;
-    if (highlighted) {std::cout << ANSI_STOP_RED;}
-    for (int i = 0; i < Color::maxNameLength - this->name.length(); i++) {std::cout << ' ';}
-    std::cout << " | ";
-    for (int i = 0; i < maxQtyLength - std::to_string(this->getQuantity()).length(); i++) {std::cout << ' ';}
-    std::cout << this->getQuantity() << std::endl;
+    // create color pair from hex
+    // expect "RRGGBB" (6 chars, no '#')
+    int r = std::stoi(this->rgb.substr(0, 2), nullptr, 16);
+    int g = std::stoi(this->rgb.substr(2, 2), nullptr, 16);
+    int b = std::stoi(this->rgb.substr(4, 2), nullptr, 16);
+    init_color(2, static_cast<short>(r * 1000 / 255), static_cast<short>(g*1000/255), static_cast<short>(b*1000/255));
+    init_pair(2, COLOR_BLACK, 2);
+
+    attron(COLOR_PAIR(2));
+    printw("  ");
+    attroff(COLOR_PAIR(2));
+    init_pair(1, COLOR_RED, COLOR_BLACK);
+    if (highlighted) {attron(COLOR_PAIR(1));}
+    printw("%s", this->name.c_str());
+    if (highlighted) {attroff(COLOR_PAIR(1));}
+    printw("%s", std::string(Color::maxNameLength - this->name.length(), ' ').c_str());
+    printw(" | ");
+    printw("%s", std::string(maxQtyLength - std::to_string(this->getQuantity()).length(), ' ').c_str());
+    printw("%i\n", this->getQuantity());
 }
 
 void Color::openBricklink() {
@@ -244,24 +235,25 @@ class Part {
 Part::Part(std::string number, std::string name, std::string location) : number{number}, name{name}, location{location} {}
 
 void Part::print(bool highlighted) {
-    winsize terminalWidth;
-    ioctl(STDOUT_FILENO, TIOCGWINSZ, &terminalWidth);
+    init_pair(1, COLOR_RED, COLOR_BLACK);
+    int rows, cols;
+    getmaxyx(stdscr, rows, cols);
     if (highlighted) {
-        std::cout << ANSI_START_RED;
+        attron(COLOR_PAIR(1));
     }
-    std::string filler;
-    if ((name.length() + number.length() + location.length() + 7) > terminalWidth.ws_col) {
-        std::cout << name.substr(0, terminalWidth.ws_col - number.length() - location.length() - 7) <<
-            " [...] " << location << number;
+    if ((name.length() + number.length() + location.length() + 7) > cols) {
+        printw("%s [...] %s%s", name.substr(0, cols - number.length() - location.length() - 7).c_str(), location.c_str(), number.c_str());
     }
     else {
-        std::cout << name << std::string(terminalWidth.ws_col - name.length() - number.length() - location.length(), ' ') <<
-            location << number;
+        printw("%s%s%s%s",
+                name.c_str(),
+                std::string(cols - name.length() - number.length() - location.length(), ' ').c_str(),
+                location.c_str(),
+                number.c_str());
     }
     if (highlighted) {
-        std::cout << ANSI_STOP_RED;
+        attroff(COLOR_PAIR(1));
     }
-    std::cout << std::endl;
 }
 
 void Part::openBricklink() {
@@ -327,16 +319,15 @@ void Part::getAvailableColors(std::vector<Color>& colors, pqxx::connection& conn
 }
 
 void editLocation(Part part, std::string storagePrefix, pqxx::connection& conn) {
-    std::cout << "Current location: " << part.getLocation() << '\n';
-    std::cout << "Enter new location: ";
-    std::string location;
-    std::getline(std::cin, location);
+    printw("Current location: %s\n", part.getLocation().c_str());
+    printw("Enter new location: ");
+    char buffer[256];
+    getstr(buffer);
+    std::string location = buffer;
     if (location == QUIT) {
         exit(EXIT_SUCCESS);
     }
-    for (int i = 0; i < 2; i++) {
-        std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
-    }
+    clear();
     part.setLocation(location, storagePrefix, conn);
 }
 
@@ -383,50 +374,76 @@ void search(std::string query, std::vector<Part> &results, pqxx::connection& con
 
 template<typename Item>
 int selectEntry(std::vector<Item>& searchResult, int maxPageSize, bool& escaped) {
+    noecho();
+    cbreak();
+    keypad(stdscr, TRUE);
+    curs_set(0);
+
     int selection = 0,
         pageIndex = 0,
         numPages = searchResult.size() / maxPageSize + (searchResult.size() % maxPageSize == 0 ? 0 : 1);
     bool selecting = true;
-    std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
     while (selecting) {
+        erase();
+        move(0, 0);
         for (int i = maxPageSize * pageIndex; i < searchResult.size() && i < maxPageSize * (pageIndex + 1); i++) {
             searchResult[i].print(i == selection);
         }
-        std::cout << "Page " << pageIndex + 1 << " of " << numPages << "\tnavigate with arrow-keys, select with enter" << std::endl;
+        printw("Page %d of %d\t navigate with arrow-keys, select with enter", pageIndex + 1, numPages);
+        refresh();
 
-        int keePress = getch(),
-            pageChange = 0;
-        if (keePress == 27 && getch() == 91) { // check escape sequence
-            keePress = getch();
-            if (keePress == UP_ARROW && selection > maxPageSize * pageIndex)
-                selection--;
-            else if (keePress == DOWN_ARROW && selection < searchResult.size() - 1 && selection < maxPageSize * (pageIndex + 1) - 1)
-                selection++;
-            else if (keePress == RIGHT_ARROW && pageIndex < numPages - 1) {
-                pageChange = 1;
-                if (pageIndex == numPages - 2)
-                    selection = searchResult.size() - 1;
-                else
-                    selection += maxPageSize;
-            } else if (keePress == LEFT_ARROW && pageIndex > 0) {
-                pageChange = -1;
-                selection -= maxPageSize;
-            }
-        }
-        else if (keePress == ENTER_KEY) selecting = false;
-        else if (keePress == SPACE_BAR) searchResult[selection].openBricklink();
-        else if (keePress == 27 /*esc*/) {
-            selecting = false;
-            escaped = true;
-        }
-        for (int i = maxPageSize * pageIndex; i < searchResult.size() + 1 && i < maxPageSize * (pageIndex + 1) + 1; i++) {
-            std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
+        int pageChange = 0;
+        switch (getch()) {
+            case 'k':
+            case KEY_UP:
+                if (selection > maxPageSize * pageIndex) {
+                   selection--; 
+                }
+                break;
+            case 'j':
+            case KEY_DOWN:
+                if (selection < searchResult.size() - 1 && selection < maxPageSize * (pageIndex + 1) - 1) {
+                    selection++;
+                }
+                break;
+            case 'l':
+            case KEY_RIGHT:
+                if (pageIndex < numPages - 1) {
+                    pageChange = 1;
+                    if (pageIndex == numPages - 2)
+                        selection = searchResult.size() - 1;
+                    else
+                        selection += maxPageSize;
+                }
+                break;
+            case 'h':
+            case KEY_LEFT:
+                if (pageIndex > 0) {
+                    pageChange = -1;
+                    selection -= maxPageSize;
+                }
+                break;
+            case '\n':
+            case KEY_ENTER:
+                selecting = false;
+                break;
+            case ' ':
+                searchResult[selection].openBricklink();
+                break;
+            case 27:
+                selecting = false;
+                escaped = true;
+                break;
         }
         pageIndex += pageChange;
     }
+    clear();
+    echo();
+    nocbreak();
+    keypad(stdscr, FALSE);
+    curs_set(1);
     return selection;
 }
-
 
 void getInfo(pqxx::connection& conn) {
     pqxx::work work(conn);
@@ -472,50 +489,43 @@ void getInfo(pqxx::connection& conn) {
     std::cout << "max lyt: " << maxLyt << std::endl;
 }
 
-std::string getPartName() {
-    std::cout << "Enter part name: ";
-    std::string query;
-    std::getline(std::cin, query);
-    if (query == QUIT) {
-        exit(EXIT_SUCCESS);
-    }
-    return query;
-}
-
 void editColor(Part part, pqxx::connection& conn) {
     std::vector<Color> colors;
     part.getAvailableColors(colors, conn);
-    std::cout << "Part " << part.name << std::endl;
+    printw("Part %s\n", part.name.c_str());
     bool escaped = false;
     while (true) {
         int colorSelection = selectEntry(colors, 25, escaped);
         if (escaped) {
             return;
         }
-        std::cout << "Color " << colors[colorSelection].name << std::endl;
-        std::cout << "num parts: " << colors[colorSelection].getQuantity() << std::endl;
-        std::cout << "Enter new quantity: ";
-        std::string input;
-        std::getline(std::cin, input);
+        printw("Color %s\n", colors[colorSelection].name.c_str());
+        printw("num parts: %i\n", colors[colorSelection].getQuantity());
+        printw("Enter new quantity: ");
+        char buffer[256];
+        getstr(buffer);
+        std::string input = buffer;
         int newQuantity;
         try {
             size_t pos;
             newQuantity = std::stoi(input, &pos);
         }
         catch (const std::invalid_argument& e) {
-            std::cout << "Invalid input; aborting! Press any key to continue;" << std::endl;
+            printw("Invalid input; aborting! Press any key to continue;\n");
             getch();
-            for (int i = 0; i < 4; i++) {
-                std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
-            }
+            move(getcury(stdscr) - 4, 0); // Move cursor up one line
+            clrtoeol(); // Erase to end of line
+            refresh(); // Update the screen
             return;
         }
         colors[colorSelection].setQuantity(newQuantity);
-        for (int i = 0; i < 2; i++) {
-            std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
-        }
+        move(getcury(stdscr) - 2, 0); // Move cursor up one line
+        clrtoeol(); // Erase to end of line
+        refresh(); // Update the screen
     }
-    std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
+    move(getcury(stdscr) - 1, 0); // Move cursor up one line
+    clrtoeol(); // Erase to end of line
+    refresh(); // Update the screen
 }
 
 void updateParts(std::string path, pqxx::connection& conn) {
@@ -851,35 +861,52 @@ int main(const int argc, const char* argv[]) {
     }
 
     // main program loop
+    setlocale(LC_ALL, "");
+    initscr();
+    cbreak();
+    start_color();
+    use_default_colors();
     while (true) {
-        std::string query = getPartName();
+        char query[1000];
+        printw("Enter part name: ");
+        getstr(query);
+        if (strcmp(query, QUIT) == 0) {
+            endwin();
+            exit(EXIT_SUCCESS);
+        }
+
         std::vector<Part> searchResult;
         search(query, searchResult, conn);
-
         if (searchResult.size() == 0) {
-            std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE << "No result found! ";
+            clear();
+            printw("No result found! ");
             continue;
         }
+
         int maxPadding = 0;
         for (auto result : searchResult) {
             if (result.name.length() > maxPadding)
                 maxPadding = result.name.length();
         }
 
+        clear();
         bool escaped = false;
         int selection = selectEntry(searchResult, 25, escaped);
         if (escaped) {continue;}
 
-        std::cout << "Selected: " << searchResult[selection].name << ", " 
-            << searchResult[selection].number << std::endl;
+        printw("Selected %s, %s\n", searchResult[selection].name.c_str(), searchResult[selection].number.c_str());
         if (searchResult[selection].getLocation().length() == 0) {
             editLocation(searchResult[selection], storagePrefix, conn);
         }
         else {
-            std::cout << "Edit color or location (c/l)? ";
-            std::string answer;
-            std::getline(std::cin, answer);
-            std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
+            printw("Edit color or location (c/l)? ");
+            char buffer[256];
+            getstr(buffer);
+            std::string answer = buffer;
+            move(getcury(stdscr) - 1, 0); // Move cursor up one line
+            clrtoeol(); // Erase to end of line
+            refresh(); // Update the screen
+
             if (answer == "c") {
                 editColor(searchResult[selection], conn);
             }
@@ -887,7 +914,10 @@ int main(const int argc, const char* argv[]) {
                 editLocation(searchResult[selection], storagePrefix, conn);
             }
         }
-        std::cout << ANSI_CURSOR_UP_ONE_LINE << ANSI_ERASE_TO_END_OF_LINE;
+        move(getcury(stdscr) - 1, 0); // Move cursor up one line
+        clrtoeol(); // Erase to end of line
+        refresh(); // Update the screen
+
     }
     return EXIT_SUCCESS;
 }

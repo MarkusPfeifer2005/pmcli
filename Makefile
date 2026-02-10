@@ -3,7 +3,7 @@
 
 all : str_lib.o main.o csv.o pugixml.o
 	mkdir -p build
-	g++ -o build/pmcli -std=c++17 main.o str_lib.o csv.o pugixml.o -lpqxx -lpq
+	g++ -o build/pmcli -std=c++17 main.o str_lib.o csv.o pugixml.o -lpqxx -lpq -lncurses
 
 test : str_lib.o test.o
 	mkdir -p build
