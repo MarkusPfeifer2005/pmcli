@@ -27,9 +27,42 @@
 
 #define PART_NUM_LENGTH 20
 
-// Keybindings
-#define QUIT ":q"
-#define CANCEL ":c"
+bool getUserInput(std::string& out) {
+    noecho();
+
+    out.clear();
+    int ch;
+    while (true) {
+        ch = getch();
+        switch (ch) {
+            case 27:
+                echo();
+                return false;
+            case '\n':
+            case KEY_ENTER:
+                echo();
+                return true;
+            case KEY_BACKSPACE:
+            case 127:
+            case 8:
+                if (!out.empty()) {
+                    out.pop_back();
+                    int x, y;
+                    getyx(stdscr, y, x);
+                    mvaddch(y, x - 1, ' ');
+                    move(y, x - 1);
+                }
+                break;
+            default:
+                if (isprint(ch)) {
+                    out.push_back(static_cast<char>(ch));
+                    addch(ch);
+                }
+                break;
+        }
+        refresh();
+    }
+}
 
 std::string connect_db() {
     const char* homeDir = std::getenv("HOME");
@@ -88,11 +121,10 @@ std::string connect_db() {
 void editLocation(Part part, std::string storagePrefix, pqxx::connection& conn) {
     printw("Current location: %s\n", part.getLocation().c_str());
     printw("Enter new location: ");
-    char buffer[256];
-    getstr(buffer);
-    std::string location = buffer;
-    if (location == QUIT) {
-        exit(EXIT_SUCCESS);
+    std::string location;
+    if (!getUserInput(location)) {
+        clear();
+        return;
     }
     clear();
     part.setLocation(location, storagePrefix, conn);
@@ -142,8 +174,6 @@ void search(std::string query, std::vector<Part> &results, pqxx::connection& con
 template<typename Item>
 int selectEntry(std::vector<Item>& searchResult, int maxPageSize, bool& escaped) {
     noecho();
-    cbreak();
-    keypad(stdscr, TRUE);
     curs_set(0);
 
     int selection = 0,
@@ -206,8 +236,6 @@ int selectEntry(std::vector<Item>& searchResult, int maxPageSize, bool& escaped)
     }
     clear();
     echo();
-    nocbreak();
-    keypad(stdscr, FALSE);
     curs_set(1);
     return selection;
 }
@@ -269,9 +297,10 @@ void editColor(Part part, pqxx::connection& conn) {
         printw("Color %s\n", colors[colorSelection].name.c_str());
         printw("num parts: %i\n", colors[colorSelection].getQuantity());
         printw("Enter new quantity: ");
-        char buffer[256];
-        getstr(buffer);
-        std::string input = buffer;
+        std::string input;
+        if (!getUserInput(input)) {
+            continue;
+        }
         int newQuantity;
         try {
             size_t pos;
@@ -631,18 +660,16 @@ int main(const int argc, const char* argv[]) {
     setlocale(LC_ALL, "");
     initscr();
     set_escdelay(25);   // milliseconds
-    cbreak();
+    cbreak();              // read input immediately (no line buffering)
+    keypad(stdscr, TRUE);  // decode function & arrow keys
     start_color();
     use_default_colors();
     init_pair(1, COLOR_RED, COLOR_BLACK);
+
     while (true) {
         char query[1000];
         printw("Enter part name: ");
         getstr(query);
-        if (strcmp(query, QUIT) == 0) {
-            endwin();
-            exit(EXIT_SUCCESS);
-        }
 
         std::vector<Part> searchResult;
         search(query, searchResult, conn);

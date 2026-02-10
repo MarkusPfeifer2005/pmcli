@@ -2,12 +2,6 @@
 #include <ncurses.h>
 #include <pqxx/pqxx>
 
-#define PART_NUM_LENGTH 20
-
-// Keybindings
-#define QUIT ":q"
-#define CANCEL ":c"
-
 //##############
 //Item
 //##############
@@ -85,7 +79,6 @@ Color::Color(int cID, std::string name, std::string rgb, int quantity, std::stri
         this->ncursesID = Color::maxNcursesID++;
         init_color(this->ncursesID, static_cast<short>(r*1000/255), static_cast<short>(g*1000/255), static_cast<short>(b*1000/255));
         init_pair(this->ncursesID, COLOR_BLACK, this->ncursesID);
-        
 }
 
 void Color::setQuantity(unsigned int qty) {
@@ -153,22 +146,20 @@ std::string Part::getLocation() {return this->location;}
 
 void Part::setLocation(std::string location, std::string storagePrefix, pqxx::connection& conn) {
     pqxx::work work(conn);
-    if (location != std::string{CANCEL}) {
-        if (location.length() != 0) {
-            work.exec(
-                    "INSERT INTO owning (number, location) "
-                    "VALUES ($1, $2) "
-                    "ON CONFLICT (number) DO UPDATE "
-                    "SET location = EXCLUDED.location;",
-                    pqxx::params{this->number, storagePrefix + location}
-            );
-        }
-        else {
-            work.exec("DELETE FROM owning WHERE number = $1;", pqxx::params{this->number});
-        }
-        work.commit();
-        this->location = location;
+    if (location.length() != 0) {
+        work.exec(
+                "INSERT INTO owning (number, location) "
+                "VALUES ($1, $2) "
+                "ON CONFLICT (number) DO UPDATE "
+                "SET location = EXCLUDED.location;",
+                pqxx::params{this->number, storagePrefix + location}
+                );
     }
+    else {
+        work.exec("DELETE FROM owning WHERE number = $1;", pqxx::params{this->number});
+    }
+    work.commit();
+    this->location = location;
 } 
 
 void Part::getAvailableColors(std::vector<Color>& colors, pqxx::connection& conn) {
