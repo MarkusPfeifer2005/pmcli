@@ -14,6 +14,7 @@
 #include <set>
 #include "str_lib.h"
 #include "csv.h"
+#include "item.h"
 #include <pqxx/pqxx>
 #include "libs/pugixml-1.15/src/pugixml.hpp"
 #include <termios.h>
@@ -23,14 +24,7 @@
 
 #define ANSI_CURSOR_UP_ONE_LINE "\033[1A"
 #define ANSI_ERASE_TO_END_OF_LINE "\033[K"
-#define ANSI_START_RED "\033[31m"
-#define ANSI_STOP_RED "\033[0m"
-#define UP_ARROW 65
-#define DOWN_ARROW 66
-#define RIGHT_ARROW 67
-#define LEFT_ARROW 68
-#define ENTER_KEY 10
-#define SPACE_BAR 32
+
 #define PART_NUM_LENGTH 20
 
 // Keybindings
@@ -91,233 +85,6 @@ std::string connect_db() {
     return loginString += " password=" + password;
 }
 
-class Item {
-    public:
-        Item(std::string pID, unsigned int cID, unsigned int quantity, pqxx::connection& conn);
-        unsigned int getQuantity() const;
-        void setQuantity(unsigned int quantity);
-        void operator+(const Item& other);  // void is unconventional but allowed
-        void operator-(const Item& other);
-        bool operator!=(const Item& other);
-        const std::string partID;
-        const unsigned int colorID;
-    protected:
-        pqxx::connection& conn;
-    private:
-        unsigned int quantity;
-};
-
-Item::Item(std::string pID, unsigned int cID, unsigned int quantity, pqxx::connection& conn):
-    partID{pID}, colorID{cID}, quantity(quantity), conn(conn) {}
-
-bool Item::operator!=(const Item& other) {
-    if (this->colorID != other.colorID) {
-        return true;
-    }
-    if (this->partID != other.partID) {
-        return true;
-    }
-    return false;
-}
-
-void Item::operator+(const Item& other) {
-    if ((*this) != other) {
-        throw std::invalid_argument("Cannot add items with different color or part ID!");
-    }
-    this->setQuantity(this->getQuantity() + other.getQuantity());
-}
-
-void Item::operator-(const Item& other) {
-    if ((*this) != other) {
-        throw std::invalid_argument("Cannot subtract items with different color or part ID!");
-    }
-    this->setQuantity(this->getQuantity() - other.getQuantity());
-}
-
-unsigned int Item::getQuantity() const {return this->quantity;}
-
-void Item::setQuantity(unsigned int qty) {
-    pqxx::work work(this->conn);
-    if (qty == 0) {
-
-        work.exec("DELETE FROM stock WHERE number=$1 AND color=$2;", pqxx::params{this->partID, this->colorID});
-    }
-    else {
-        work.exec(
-                "INSERT INTO stock (number, color, quantity) "
-                "VALUES($1, $2, $3) "
-                "ON CONFLICT (number, color) DO UPDATE "
-                "SET quantity = EXCLUDED.quantity;",
-                pqxx::params{this->partID, this->colorID, qty}
-        );
-    }
-    this->quantity = qty;
-    work.commit();
-}
-
-class Color : public Item {
-    public:
-        std::string name,
-                    rgb;
-        Color(int id, std::string name, std::string rgb, int quantity, std::string partID, pqxx::connection& conn);
-        void setQuantity(unsigned int qty);
-        void print(bool highlighted=false);
-        void openBricklink();
-    private:
-        static unsigned int maxNameLength,
-                            maxQtyLength;
-};
-
-unsigned int Color::maxNameLength = 0;
-unsigned int Color::maxQtyLength = 0;
-
-Color::Color(int cID, std::string name, std::string rgb, int quantity, std::string partID, pqxx::connection& conn):
-    Item(partID, cID, quantity, conn),
-    name(name),
-    rgb(rgb) {
-        if (this->name.length() > Color::maxNameLength) {
-            Color::maxNameLength = this->name.length();
-        }
-        if (std::to_string(quantity).length() > Color::maxQtyLength) {
-            Color::maxQtyLength = std::to_string(quantity).length();
-        }
-}
-
-void Color::setQuantity(unsigned int qty) {
-    Item::setQuantity(qty);
-    if (std::to_string(this->getQuantity()).length() > Color::maxQtyLength) {
-        Color::maxQtyLength = std::to_string(this->getQuantity()).length();
-    }
-}
-
-void Color::print(bool highlighted) {
-    // create color pair from hex
-    // expect "RRGGBB" (6 chars, no '#')
-    int r = std::stoi(this->rgb.substr(0, 2), nullptr, 16);
-    int g = std::stoi(this->rgb.substr(2, 2), nullptr, 16);
-    int b = std::stoi(this->rgb.substr(4, 2), nullptr, 16);
-    init_color(2, static_cast<short>(r * 1000 / 255), static_cast<short>(g*1000/255), static_cast<short>(b*1000/255));
-    init_pair(2, COLOR_BLACK, 2);
-
-    attron(COLOR_PAIR(2));
-    printw("  ");
-    attroff(COLOR_PAIR(2));
-    init_pair(1, COLOR_RED, COLOR_BLACK);
-    if (highlighted) {attron(COLOR_PAIR(1));}
-    printw("%s", this->name.c_str());
-    if (highlighted) {attroff(COLOR_PAIR(1));}
-    printw("%s", std::string(Color::maxNameLength - this->name.length(), ' ').c_str());
-    printw(" | ");
-    printw("%s", std::string(maxQtyLength - std::to_string(this->getQuantity()).length(), ' ').c_str());
-    printw("%i\n", this->getQuantity());
-}
-
-void Color::openBricklink() {
-    std::string command = "firefox 'https://www.bricklink.com/catalogList.asp?v=2&colorID='";
-    command += std::to_string(this->colorID);
-    system(command.c_str());
-}
-
-class Part {
-    public:
-        std::string number,
-                    name;
-        void print(bool highlighted=false);
-        Part(std::string number, std::string name, std::string location);
-        std::string getLocation();
-        void setLocation(std::string location, std::string storagePrefix, pqxx::connection& conn);
-        void openBricklink();
-        void getAvailableColors(std::vector<Color>& colors, pqxx::connection& conn);
-    private:
-        std::string location;
-};
-
-Part::Part(std::string number, std::string name, std::string location) : number{number}, name{name}, location{location} {}
-
-void Part::print(bool highlighted) {
-    init_pair(1, COLOR_RED, COLOR_BLACK);
-    int rows, cols;
-    getmaxyx(stdscr, rows, cols);
-    if (highlighted) {
-        attron(COLOR_PAIR(1));
-    }
-    if ((name.length() + number.length() + location.length() + 7) > cols) {
-        printw("%s [...] %s%s", name.substr(0, cols - number.length() - location.length() - 7).c_str(), location.c_str(), number.c_str());
-    }
-    else {
-        printw("%s%s%s%s",
-                name.c_str(),
-                std::string(cols - name.length() - number.length() - location.length(), ' ').c_str(),
-                location.c_str(),
-                number.c_str());
-    }
-    if (highlighted) {
-        attroff(COLOR_PAIR(1));
-    }
-}
-
-void Part::openBricklink() {
-    std::string command = "firefox https://www.bricklink.com/v2/search.page?q=";
-    command += this->number;
-    command += "#T=P";
-    system(command.c_str());
-}
-
-std::string Part::getLocation() {return this->location;}
-
-void Part::setLocation(std::string location, std::string storagePrefix, pqxx::connection& conn) {
-    pqxx::work work(conn);
-    if (location != std::string{CANCEL}) {
-        if (location.length() != 0) {
-            work.exec(
-                    "INSERT INTO owning (number, location) "
-                    "VALUES ($1, $2) "
-                    "ON CONFLICT (number) DO UPDATE "
-                    "SET location = EXCLUDED.location;",
-                    pqxx::params{this->number, storagePrefix + location}
-            );
-        }
-        else {
-            work.exec("DELETE FROM owning WHERE number = $1;", pqxx::params{this->number});
-        }
-        work.commit();
-        this->location = location;
-    }
-} 
-
-void Part::getAvailableColors(std::vector<Color>& colors, pqxx::connection& conn) {
-    pqxx::work work(conn);
-    std::string request = 
-        "SELECT id, name, rgb, COALESCE(quantity, 0) as quantity "
-        "FROM "
-            "(SELECT id, name, rgb "
-            "FROM available_colors Left OUTER JOIN color "
-            "ON available_colors.color_id=color.id "
-            "WHERE part_number='" + work.esc(this->number) + "') col "
-
-            "LEFT OUTER JOIN "
-
-            "(SELECT color, quantity "
-            "FROM stock "
-            "WHERE number='" + work.esc(this->number) + "') stk "
-
-            "ON col.id=stk.color "
-        ";";
-    pqxx::result result = work.exec(request);
-    work.commit();
-    std::string nameCopy;
-    for (const auto row : result) {
-        colors.push_back(Color {
-                row["id"].as<int>(),
-                row["name"].as<std::string>(),
-                row["rgb"].as<std::string>(),
-                row["quantity"].as<int>(),
-                this->number,
-                conn
-        });
-    }
-}
-
 void editLocation(Part part, std::string storagePrefix, pqxx::connection& conn) {
     printw("Current location: %s\n", part.getLocation().c_str());
     printw("Enter new location: ");
@@ -333,7 +100,7 @@ void editLocation(Part part, std::string storagePrefix, pqxx::connection& conn) 
 
 void search(std::string query, std::vector<Part> &results, pqxx::connection& conn) {
     pqxx::work work(conn); 
-    /*fill the results vector with results*/
+    //fill the results vector with results
     query = removeDublicateWhitespaces(query);
     std::string queryShape = getShape(query, true);
     std::vector<std::string> queryKeywords;
@@ -863,9 +630,11 @@ int main(const int argc, const char* argv[]) {
     // main program loop
     setlocale(LC_ALL, "");
     initscr();
+    set_escdelay(25);   // milliseconds
     cbreak();
     start_color();
     use_default_colors();
+    init_pair(1, COLOR_RED, COLOR_BLACK);
     while (true) {
         char query[1000];
         printw("Enter part name: ");
@@ -894,7 +663,9 @@ int main(const int argc, const char* argv[]) {
         int selection = selectEntry(searchResult, 25, escaped);
         if (escaped) {continue;}
 
-        printw("Selected %s, %s\n", searchResult[selection].name.c_str(), searchResult[selection].number.c_str());
+        printw("Selected %s, %s\n",
+                searchResult[selection].name.c_str(),
+                searchResult[selection].number.c_str());
         if (searchResult[selection].getLocation().length() == 0) {
             editLocation(searchResult[selection], storagePrefix, conn);
         }

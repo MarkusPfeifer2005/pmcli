@@ -1,9 +1,9 @@
 .cpp.o:
 	g++ -c -std=c++17 $<
 
-all : str_lib.o main.o csv.o pugixml.o
+all : str_lib.o main.o csv.o pugixml.o item.o
 	mkdir -p build
-	g++ -o build/pmcli -std=c++17 main.o str_lib.o csv.o pugixml.o -lpqxx -lpq -lncurses
+	g++ -o build/pmcli -std=c++17 main.o str_lib.o csv.o pugixml.o item.o -lpqxx -lpq -lncurses
 
 test : str_lib.o test.o
 	mkdir -p build
@@ -31,6 +31,7 @@ str_lib.o : str_lib.cpp
 main.o : main.cpp
 test.o : test.cpp
 csv.o : csv.cpp
+item.o : item.cpp
 pugixml.o : libs/pugixml-1.15/src/pugixml.cpp
 	g++ -c libs/pugixml-1.15/src/pugixml.cpp -std=c++17 -Ilibs/pugixml-1.15/src -o pugixml.o
 
