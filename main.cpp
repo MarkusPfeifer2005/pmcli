@@ -172,7 +172,11 @@ void search(std::string query, std::vector<Part> &results, pqxx::connection& con
 }
 
 template<typename Item>
-int selectEntry(std::vector<Item>& searchResult, int maxPageSize, bool& escaped) {
+int selectEntry(std::vector<Item>& searchResult, bool& escaped) {
+    int rows, cols;
+    getmaxyx(stdscr, rows, cols);
+    int maxPageSize = (MAX_DISPLAY < rows) ? MAX_DISPLAY : rows - 1;  // 1 row for page number
+
     noecho();
     curs_set(0);
 
@@ -290,7 +294,7 @@ void editColor(Part part, pqxx::connection& conn) {
     printw("Part %s\n", part.name.c_str());
     bool escaped = false;
     while (true) {
-        int colorSelection = selectEntry(colors, 25, escaped);
+        int colorSelection = selectEntry(colors, escaped);
         if (escaped) {
             return;
         }
@@ -664,7 +668,8 @@ int main(const int argc, const char* argv[]) {
     keypad(stdscr, TRUE);  // decode function & arrow keys
     start_color();
     use_default_colors();
-    init_pair(1, COLOR_RED, COLOR_BLACK);
+
+    init_pair(CONTRAST_COLOR_ID, COLOR_RED, COLOR_BLACK);
 
     while (true) {
         char query[1000];
@@ -687,7 +692,7 @@ int main(const int argc, const char* argv[]) {
 
         clear();
         bool escaped = false;
-        int selection = selectEntry(searchResult, 25, escaped);
+        int selection = selectEntry(searchResult, escaped);
         if (escaped) {continue;}
 
         printw("Selected %s, %s\n",

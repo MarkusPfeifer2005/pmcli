@@ -1,9 +1,14 @@
 #ifndef ITEM_H
 #define ITEM_H
 
+#include <array>
 #include <string>
 #include <vector>
 #include <pqxx/pqxx>
+
+#define CONTRAST_COLOR_ID 1
+#define MIN_PAIR_ID 10
+#define MAX_DISPLAY 25
 
 class Item {
     public:
@@ -25,7 +30,6 @@ class Color : public Item {
     public:
         std::string name,
                     rgb;
-        short ncursesID;
         Color(int, std::string, std::string, int, std::string, pqxx::connection&);
         void setQuantity(unsigned int);
         void print(bool = false);
@@ -33,8 +37,8 @@ class Color : public Item {
     private:
         static unsigned int maxNameLength,
                             maxQtyLength;
-        static std::vector<std::string> createdColors;
-        static short maxNcursesID;
+        unsigned short pairID;  // color pair id for ncurses
+        static unsigned short maxPairID;
 };
 
 class Part {

@@ -1,6 +1,7 @@
 #include "item.h"
 #include <ncurses.h>
 #include <pqxx/pqxx>
+#include <string>
 
 //##############
 //Item
@@ -58,7 +59,7 @@ void Item::setQuantity(unsigned int qty) {
 //###################
 unsigned int Color::maxNameLength = 0;
 unsigned int Color::maxQtyLength = 0;
-short Color::maxNcursesID = 2;
+unsigned short Color::maxPairID = MIN_PAIR_ID;
 
 Color::Color(int cID, std::string name, std::string rgb, int quantity, std::string partID, pqxx::connection& conn):
     Item(partID, cID, quantity, conn),
@@ -70,15 +71,6 @@ Color::Color(int cID, std::string name, std::string rgb, int quantity, std::stri
         if (std::to_string(quantity).length() > Color::maxQtyLength) {
             Color::maxQtyLength = std::to_string(quantity).length();
         }
-
-        // create color pair from hex
-        // expect "RRGGBB" (6 chars, no '#')
-        int r = std::stoi(this->rgb.substr(0, 2), nullptr, 16);
-        int g = std::stoi(this->rgb.substr(2, 2), nullptr, 16);
-        int b = std::stoi(this->rgb.substr(4, 2), nullptr, 16);
-        this->ncursesID = Color::maxNcursesID++;
-        init_color(this->ncursesID, static_cast<short>(r*1000/255), static_cast<short>(g*1000/255), static_cast<short>(b*1000/255));
-        init_pair(this->ncursesID, COLOR_BLACK, this->ncursesID);
 }
 
 void Color::setQuantity(unsigned int qty) {
@@ -89,12 +81,27 @@ void Color::setQuantity(unsigned int qty) {
 }
 
 void Color::print(bool highlighted) {
-    attron(COLOR_PAIR(this->ncursesID));
+    if (Color::maxPairID > MAX_DISPLAY + MIN_PAIR_ID) {
+        Color::maxPairID = MIN_PAIR_ID;
+    }
+    this->pairID = Color::maxPairID++;
+
+    // expect "RRGGBB" (6 chars, no '#')
+    int r = std::stoi(this->rgb.substr(0, 2), nullptr, 16);
+    int g = std::stoi(this->rgb.substr(2, 2), nullptr, 16);
+    int b = std::stoi(this->rgb.substr(4, 2), nullptr, 16);
+    init_color(this->pairID,
+            static_cast<short>(r*1000/255),
+            static_cast<short>(g*1000/255),
+            static_cast<short>(b*1000/255));
+    init_pair(this->pairID, COLOR_BLACK, this->pairID);
+
+    attron(COLOR_PAIR(this->pairID));
     printw("  ");
-    attroff(COLOR_PAIR(this->ncursesID));
-    if (highlighted) {attron(COLOR_PAIR(1));}
+    attroff(COLOR_PAIR(this->pairID));
+    if (highlighted) {attron(COLOR_PAIR(CONTRAST_COLOR_ID));}
     printw("%s", this->name.c_str());
-    if (highlighted) {attroff(COLOR_PAIR(1));}
+    if (highlighted) {attroff(COLOR_PAIR(CONTRAST_COLOR_ID));}
     printw("%s", std::string(Color::maxNameLength - this->name.length(), ' ').c_str());
     printw(" | ");
     printw("%s", std::string(maxQtyLength - std::to_string(this->getQuantity()).length(), ' ').c_str());
@@ -114,11 +121,10 @@ void Color::openBricklink() {
 Part::Part(std::string number, std::string name, std::string location) : number{number}, name{name}, location{location} {}
 
 void Part::print(bool highlighted) {
-    init_pair(1, COLOR_RED, COLOR_BLACK);
     int rows, cols;
     getmaxyx(stdscr, rows, cols);
     if (highlighted) {
-        attron(COLOR_PAIR(1));
+        attron(COLOR_PAIR(CONTRAST_COLOR_ID));
     }
     if ((name.length() + number.length() + location.length() + 7) > cols) {
         printw("%s [...] %s%s", name.substr(0, cols - number.length() - location.length() - 7).c_str(), location.c_str(), number.c_str());
@@ -131,7 +137,7 @@ void Part::print(bool highlighted) {
                 number.c_str());
     }
     if (highlighted) {
-        attroff(COLOR_PAIR(1));
+        attroff(COLOR_PAIR(CONTRAST_COLOR_ID));
     }
 }
 
