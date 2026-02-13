@@ -1,3 +1,4 @@
+#include <csignal>
 #include <filesystem>
 #include <cstddef>
 #include <cstdlib>
@@ -172,56 +173,61 @@ void search(std::string query, std::vector<Part> &results, pqxx::connection& con
 }
 
 template<typename Item>
-int selectEntry(std::vector<Item>& searchResult, bool& escaped) {
-    int rows, cols;
-    getmaxyx(stdscr, rows, cols);
-    int maxPageSize = (MAX_DISPLAY < rows) ? MAX_DISPLAY : rows - 1;  // 1 row for page number
-
+bool selectEntry(std::vector<Item>& searchResult, int& selection) {
+    if (selection >= searchResult.size()) {
+        throw std::out_of_range("selection >= searchResult.size()");
+    }
     noecho();
     curs_set(0);
+    int rows, cols;
+    getmaxyx(stdscr, rows, cols);
 
-    int selection = 0,
-        pageIndex = 0,
-        numPages = searchResult.size() / maxPageSize + (searchResult.size() % maxPageSize == 0 ? 0 : 1);
-    bool selecting = true;
+    int pageSize = (MAX_DISPLAY < rows) ? MAX_DISPLAY : rows - 1,  // 1 row for page number
+        pageIndex = selection / pageSize,
+        numPages = searchResult.size() / pageSize + (searchResult.size() % pageSize == 0 ? 0 : 1),
+        lastPageSize = pageSize - (numPages * pageSize - searchResult.size());
+    bool selecting = true,
+         escaped = false;
+
     while (selecting) {
         erase();
-        move(0, 0);
-        for (int i = maxPageSize * pageIndex; i < searchResult.size() && i < maxPageSize * (pageIndex + 1); i++) {
+        for (int i = pageSize * pageIndex; i < searchResult.size() && i < pageSize * (pageIndex + 1); i++) {
             searchResult[i].print(i == selection);
         }
         printw("Page %d of %d\t navigate with arrow-keys, select with enter", pageIndex + 1, numPages);
         refresh();
 
-        int pageChange = 0;
         switch (getch()) {
             case 'k':
             case KEY_UP:
-                if (selection > maxPageSize * pageIndex) {
+                if (selection > pageSize * pageIndex) {
                    selection--; 
                 }
                 break;
             case 'j':
             case KEY_DOWN:
-                if (selection < searchResult.size() - 1 && selection < maxPageSize * (pageIndex + 1) - 1) {
+                if (selection < searchResult.size() - 1 && selection < pageSize * (pageIndex + 1) - 1) {
                     selection++;
                 }
                 break;
             case 'l':
             case KEY_RIGHT:
                 if (pageIndex < numPages - 1) {
-                    pageChange = 1;
-                    if (pageIndex == numPages - 2)
+                    int pagePos = selection % pageSize;
+                    if (pageIndex == numPages - 2 && pagePos >= lastPageSize) {
                         selection = searchResult.size() - 1;
-                    else
-                        selection += maxPageSize;
+                    }
+                    else {
+                        selection += pageSize;
+                    }
+                    pageIndex++;
                 }
                 break;
             case 'h':
             case KEY_LEFT:
                 if (pageIndex > 0) {
-                    pageChange = -1;
-                    selection -= maxPageSize;
+                    selection -= pageSize;
+                    pageIndex--;
                 }
                 break;
             case '\n':
@@ -236,12 +242,11 @@ int selectEntry(std::vector<Item>& searchResult, bool& escaped) {
                 escaped = true;
                 break;
         }
-        pageIndex += pageChange;
     }
     clear();
     echo();
     curs_set(1);
-    return selection;
+    return escaped;
 }
 
 void getInfo(pqxx::connection& conn) {
@@ -292,10 +297,9 @@ void editColor(Part part, pqxx::connection& conn) {
     std::vector<Color> colors;
     part.getAvailableColors(colors, conn);
     printw("Part %s\n", part.name.c_str());
-    bool escaped = false;
+    int colorSelection = 0;
     while (true) {
-        int colorSelection = selectEntry(colors, escaped);
-        if (escaped) {
+        if (selectEntry(colors, colorSelection)) {
             return;
         }
         printw("Color %s\n", colors[colorSelection].name.c_str());
@@ -691,9 +695,8 @@ int main(const int argc, const char* argv[]) {
         }
 
         clear();
-        bool escaped = false;
-        int selection = selectEntry(searchResult, escaped);
-        if (escaped) {continue;}
+        int selection = 0;
+        if (selectEntry(searchResult, selection)) {continue;}
 
         printw("Selected %s, %s\n",
                 searchResult[selection].name.c_str(),
